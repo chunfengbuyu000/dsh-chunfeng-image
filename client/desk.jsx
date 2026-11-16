@@ -5,6 +5,7 @@ import { reducer } from './reducer.js'
 import { initialState, seedCanvas, TYPE_LABEL, GRID_STYLES, IMAGE_MODELS } from './store.js'
 import { Inspector, PromptLibrary, ModelsPanel, AssetsPanel, LogsPanel } from './panels.jsx'
 import { Icon, Dialog, Toast } from './ui.jsx'
+import css from './css.js'
 
 const TOOLS = [
   { id: 'select', label: '选择', key: 'V', icon: 'cursor' },
@@ -221,6 +222,7 @@ export function Desk() {
 
   return (
     <div className={`desk ${state.theme === 'light' ? 'is-light' : ''}`}>
+      <style>{css}</style>
       <header className="topbar">
         <div className="topbar-left">
           <button type="button" className="icon-btn" aria-label="画布菜单" onClick={() => setMenuOpen(v => !v)}>
