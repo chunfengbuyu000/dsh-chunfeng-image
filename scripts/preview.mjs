@@ -23,7 +23,7 @@ await build({
 
 const css = await import('node:fs/promises').then(f => f.readFile('preview/app.js', 'utf8'))
 // 把内联的 CSS 抽出来单独注入，避免 text loader 的字符串进 JS
-const PAGES = ['editor', 'canvas', 'studio', 'prompts', 'assets', 'config', 'config-defaults', 'config-sources']
+const PAGES = ['editor', 'editor-ref', 'editor-demo', 'canvas', 'studio', 'prompts', 'assets', 'config', 'config-defaults', 'config-sources']
 const mk = (view) => `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -37,7 +37,11 @@ const mk = (view) => `<!doctype html>
 </head>
 <body>
 <div id="root"></div>
-<script>window.__CF_VIEW = ${JSON.stringify(view)}</script>
+<script>
+window.__CF_VIEW = ${JSON.stringify(view === 'editor-ref' || view === 'editor-demo' ? 'editor' : view)};
+window.__CF_DEV_MENU = ${JSON.stringify(view === 'editor-ref' ? 'ref' : null)};
+window.__CF_DEV_DEMO = ${JSON.stringify(view === 'editor-demo')};
+</script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>`

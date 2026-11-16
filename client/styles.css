@@ -514,12 +514,13 @@
   width: min(760px, calc(100% - var(--cf-sp-7)));
   display: grid;
   gap: var(--cf-sp-2);
-  padding: var(--cf-sp-3);
-  border-radius: var(--cf-r-lg);
-  background: var(--cf-panel);
-  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong), 0 16px 40px -20px oklch(0% 0 0 / 0.6);
+  gap: 12px;
+  padding: 8px 8px 6px;
+  border-radius: var(--cf-r-panel);
+  background: var(--cf-input-surface);
+  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line), 0 16px 40px -20px oklch(0% 0 0 / 0.6);
 }
-.cf-composer:focus-within { box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-fg-2), 0 16px 40px -20px oklch(0% 0 0 / 0.6); }
+.cf-composer:focus-within { box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong), 0 16px 40px -20px oklch(0% 0 0 / 0.6); }
 
 .cf-composer-input {
   width: 100%;
@@ -531,7 +532,7 @@
   color: var(--cf-fg);
   font-size: var(--cf-fs-14);
   line-height: 1.6;
-  padding: 8px var(--cf-sp-3);
+  padding: 10px var(--cf-sp-3);
   border-radius: var(--cf-r-sm);
   background: var(--cf-bg);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-muted);
@@ -539,8 +540,66 @@
 .cf-composer-input::placeholder { color: var(--cf-caption); }
 .cf-composer-input:focus-visible { outline: none; }
 
-.cf-composer-bar { display: flex; align-items: center; gap: var(--cf-sp-2); flex-wrap: wrap; }
-.cf-composer-hint { font-size: var(--cf-fs-11); color: var(--cf-caption); margin-inline-start: auto; white-space: nowrap; }
+.cf-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 34px;
+}
+.cf-composer-left,
+.cf-composer-right { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.cf-composer-right { flex: none; margin-inline-start: auto; }
+.cf-bar-slot { position: relative; display: inline-flex; }
+
+/* 输入条上的文字按钮：无边框，靠 hover 给反馈，和原站一致 */
+.cf-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding-inline: 10px;
+  border-radius: var(--cf-r-sm);
+  font-size: var(--cf-fs-13);
+  color: var(--cf-fg-2);
+  white-space: nowrap;
+  transition: background-color var(--cf-dur) var(--cf-ease), color var(--cf-dur) var(--cf-ease);
+}
+.cf-bar-btn:hover { background: var(--cf-hover); color: var(--cf-fg); }
+.cf-bar-btn[aria-expanded="true"] { background: var(--cf-active); color: var(--cf-fg); }
+.cf-bar-btn svg { flex: 0 0 auto; opacity: 0.8; }
+/* 模型选择器用 DSH 的 selector 表面色，和普通文字按钮区分开 */
+.cf-bar-btn--select { background: var(--cf-selector); border-radius: var(--cf-r-pill); padding-inline: 12px; }
+.cf-bar-btn--select:hover { background: var(--cf-selector); filter: brightness(1.08); }
+.cf-bar-label { max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-bar-badge {
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--cf-r-pill);
+  background: var(--cf-selector);
+  color: var(--cf-fg-2);
+  font-size: var(--cf-fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 发送圆钮：和 DSH 客户端同一个圆、同一对颜色，空文本时 0.4 透明度 */
+.cf-send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--cf-r-pill);
+  background: var(--cf-send);
+  color: var(--cf-send-fg);
+  transition: background-color 100ms ease, opacity 100ms ease;
+}
+.cf-send:hover:not(:disabled) { background: var(--cf-send-hover); }
+.cf-send:disabled { opacity: 0.4; cursor: default; }
 
 .cf-model-pill {
   display: inline-flex;
@@ -832,6 +891,12 @@
 .cf-menu-item.is-on { color: var(--cf-fg); }
 .cf-menu-sep { height: var(--cf-hair); background: var(--cf-line); margin: 4px 0; }
 .cf-menu-head { padding: 6px var(--cf-sp-3); font-size: var(--cf-fs-11); color: var(--cf-caption); }
+.cf-menu--up { bottom: calc(100% + 8px); left: 0; min-width: 220px; }
+.cf-menu-item { display: flex; align-items: center; gap: 8px; }
+.cf-menu-item svg { flex: 0 0 auto; opacity: 0.75; }
+.cf-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-menu-meta { margin-inline-start: auto; color: var(--cf-caption); font-size: var(--cf-fs-11); white-space: nowrap; }
+.cf-menu-empty { padding: 8px var(--cf-sp-3); font-size: var(--cf-fs-12); color: var(--cf-muted); line-height: 1.5; }
 
 .cf-toast {
   position: fixed;

@@ -108,17 +108,50 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const { cam, moveTo } = camApi
   const [selection, setSelection] = React.useState([])
   const [tool, setTool] = React.useState('select')
-  const [prompt, setPrompt] = React.useState('')
+  const [prompt, setPrompt] = React.useState(typeof window !== 'undefined' ? (window.__CF_DEV_PROMPT || '') : '')
   const [ratio, setRatio] = React.useState(defaults?.ratio || '1:1')
   const [count, setCount] = React.useState(defaults?.count || 1)
   const [modelKey, setModelKey] = React.useState(defaults?.modelKey || '')
-  const [pickerOpen, setPickerOpen] = React.useState(false)
+  const [menu, setMenu] = React.useState(typeof window !== 'undefined' ? (window.__CF_DEV_MENU || null) : null)
+  const [refs, setRefs] = React.useState([])
   const [camera, setCamera] = React.useState(null)
+  const menuRef = React.useRef(null)
+  const fileRef = React.useRef(null)
+
+  // 点空白或 Esc 关菜单
+  React.useEffect(() => {
+    if (!menu) return
+    const onDown = (e) => { if (!menuRef.current?.contains(e.target)) setMenu(null) }
+    const onKey = (e) => { if (e.key === 'Escape') setMenu(null) }
+    window.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('pointerdown', onDown); window.removeEventListener('keydown', onKey) }
+  }, [menu])
 
   const nodes = canvas.nodes
   const edges = canvas.edges
   const pickedNodes = nodes.filter(n => selection.includes(n.id))
   const one = pickedNodes.length === 1 ? pickedNodes[0] : null
+  // 连到这个节点的素材，可以 @ 进提示词
+  const connected = React.useMemo(() => {
+    if (!one) return []
+    return edges
+      .filter(e => e.to === one.id)
+      .map(e => nodes.find(n => n.id === e.from))
+      .filter(n => n && n.type !== 'group' && n.type !== 'config')
+  }, [one, edges, nodes])
+
+  const uploadRef = () => {
+    fileRef.current?.click()
+  }
+  const onFiles = (e) => {
+    const files = [...(e.target.files || [])]
+    if (!files.length) return
+    setRefs(prev => [...prev, ...files.map(f => ({ id: f.name + f.size, name: f.name, url: URL.createObjectURL(f) }))])
+    say?.(`已加入 ${files.length} 张参考图`)
+    e.target.value = ''
+  }
+
   const imageModels = modelsWithCap(channels, 'image')
   const activeModel = findModel(channels, modelKey) || imageModels[0] || null
 
@@ -274,54 +307,123 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
           <textarea
             className="cf-composer-input"
             value={prompt}
+            rows={4}
             placeholder={one?.type === 'image' ? '描述你想把这张图改成什么' : '描述画面主体、风格、构图、光线和用途'}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generate() } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); generate() }
+            }}
           />
-          <div className="cf-composer-bar">
-            <div style={{ position: 'relative' }}>
-              <button type="button" className="cf-model-pill" onClick={() => setPickerOpen(v => !v)}>
-                <Icon name="sparkle" size={13} />
-                <span>{activeModel ? activeModel.label : '选择模型'}</span>
-                <Icon name="chevron" size={12} />
+
+          <div className="cf-composer-bar" ref={menuRef}>
+                        <div className="cf-composer-left">
+{/* ＋ 参考 */}
+            <div className="cf-bar-slot">
+              <button type="button" className="cf-bar-btn" onClick={() => setMenu(menu === 'ref' ? null : 'ref')}
+                aria-expanded={menu === 'ref'} aria-haspopup="menu">
+                <Icon name="plus" size={15} />
+                参考
+                {refs.length + connected.length ? <span className="cf-bar-badge">{refs.length + connected.length}</span> : null}
               </button>
-              {pickerOpen ? (
-                <div className="cf-menu" style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, width: 280 }}>
-                  <p className="cf-menu-head">生图模型</p>
-                  {imageModels.length ? imageModels.map(m => (
-                    <button key={m.key} type="button" className={`cf-menu-item${m.key === (modelKey || imageModels[0]?.key) ? ' is-on' : ''}`}
-                      onClick={() => { setModelKey(m.key); setPickerOpen(false) }}>
-                      {m.label} <span style={{ color: 'var(--cf-caption)' }}>· {m.channel.name || m.channel.protocol}</span>
+              {menu === 'ref' ? (
+                <div className="cf-menu cf-menu--up" role="menu">
+                  <p className="cf-menu-head">画布上已连接的素材</p>
+                  {connected.length ? connected.map(n => (
+                    <button key={n.id} type="button" className="cf-menu-item" role="menuitem"
+                      onClick={() => {
+                        setPrompt(t => `${t}${t && !t.endsWith(' ') ? ' ' : ''}@${NODE_TYPES[n.type]}${n.name ? `:${n.name}` : ''} `)
+                        setMenu(null)
+                      }}>
+                      <Icon name={n.type === 'image' ? 'image' : n.type === 'text' ? 'text' : 'audio'} size={14} />
+                      <span className="cf-menu-label">{n.name || (n.prompt || n.text || '未命名素材').slice(0, 18)}</span>
                     </button>
-                  )) : <p className="cf-menu-head" style={{ whiteSpace: 'normal' }}>还没有可用模型，去「配置 → 渠道」添加。</p>}
+                  )) : <p className="cf-menu-empty">先把素材连到这个节点，就能在这里引用</p>}
+                  <div className="cf-menu-sep" />
+                  <button type="button" className="cf-menu-item" role="menuitem" onClick={uploadRef}>
+                    <Icon name="upload" size={14} />
+                    <span className="cf-menu-label">从本地上传图片</span>
+                  </button>
+                  <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onFiles} />
                 </div>
               ) : null}
             </div>
 
-            <div className="cf-chips">
-              {RATIOS.map(r => (
-                <button key={r.id} type="button" className={`cf-chip cf-chip--tag${ratio === r.id ? ' is-on' : ''}`}
-                  onClick={() => setRatio(r.id)}>{r.label}</button>
-              ))}
+            {/* 比例 */}
+            <div className="cf-bar-slot">
+              <button type="button" className="cf-bar-btn" onClick={() => setMenu(menu === 'ratio' ? null : 'ratio')}
+                aria-expanded={menu === 'ratio'} aria-haspopup="menu">
+                <Icon name="frame" size={15} />
+                {ratio}
+              </button>
+              {menu === 'ratio' ? (
+                <div className="cf-menu cf-menu--up" role="menu">
+                  <p className="cf-menu-head">画面比例</p>
+                  {RATIOS.map(r => (
+                    <button key={r.id} type="button" className={`cf-menu-item${ratio === r.id ? ' is-on' : ''}`} role="menuitem"
+                      onClick={() => { setRatio(r.id); setMenu(null) }}>
+                      <span className="cf-menu-label">{r.label}</span>
+                      <span className="cf-menu-meta">{r.w} × {r.h}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
-            <div className="cf-seg" role="group" aria-label="张数">
-              {[1, 2, 4].map(n => (
-                <button key={n} type="button" className={count === n ? 'is-on' : ''} onClick={() => setCount(n)}>{n} 张</button>
-              ))}
+            {/* 张数 */}
+            <div className="cf-bar-slot">
+              <button type="button" className="cf-bar-btn" onClick={() => setMenu(menu === 'count' ? null : 'count')}
+                aria-expanded={menu === 'count'} aria-haspopup="menu">
+                {count} 张
+                <Icon name="chevron" size={12} />
+              </button>
+              {menu === 'count' ? (
+                <div className="cf-menu cf-menu--up" role="menu">
+                  <p className="cf-menu-head">生成张数</p>
+                  {[1, 2, 4].map(n => (
+                    <button key={n} type="button" className={`cf-menu-item${count === n ? ' is-on' : ''}`} role="menuitem"
+                      onClick={() => { setCount(n); setMenu(null) }}>{n} 张</button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
-            <button type="button" className="cf-btn cf-btn--primary cf-btn--sm" onClick={generate} disabled={!prompt.trim()}>
-              <Icon name="play" size={13} />
-              生成
-            </button>
-            {pickedNodes.length ? (
-              <span style={{ display: 'inline-flex', gap: 4 }}>
-                <IconBtn name="link" label="包成组" onClick={wrap} />
+            </div>
+
+            <div className="cf-composer-right">
+              {/* 模型 */}
+            <div className="cf-bar-slot">
+              <button type="button" className="cf-bar-btn cf-bar-btn--select" onClick={() => setMenu(menu === 'model' ? null : 'model')}
+                aria-expanded={menu === 'model'} aria-haspopup="menu">
+                <Icon name="bars" size={15} />
+                <span className="cf-bar-label">{activeModel ? activeModel.label : '选择模型'}</span>
+                <Icon name="chevron" size={12} />
+              </button>
+              {menu === 'model' ? (
+                <div className="cf-menu cf-menu--up" role="menu" style={{ width: 300 }}>
+                  <p className="cf-menu-head">生图模型</p>
+                  {imageModels.length ? imageModels.map(m => (
+                    <button key={m.key} type="button" className={`cf-menu-item${m.key === modelKey ? ' is-on' : ''}`} role="menuitem"
+                      onClick={() => { setModelKey(m.key); setMenu(null) }}>
+                      <span className="cf-menu-label">{m.label}</span>
+                      <span className="cf-menu-meta">{m.channel.name || m.channel.protocol}</span>
+                    </button>
+                  )) : <p className="cf-menu-empty">还没有可用模型，去「配置 → 渠道」添加</p>}
+                </div>
+              ) : null}
+              </div>
+
+              {pickedNodes.length ? (
+              <span style={{ display: 'inline-flex', gap: 2 }}>
+                <IconBtn name="group" label="包成组" onClick={wrap} />
                 <IconBtn name="trash" label="删除选中" onClick={removeSelected} />
               </span>
             ) : null}
-            <span className="cf-composer-hint">⌘⏎ 生成</span>
+
+              <button type="button" className="cf-send" onClick={generate} disabled={!prompt.trim()}
+                aria-label="生成" title="生成（Enter）">
+                <Icon name="arrowUp" size={17} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

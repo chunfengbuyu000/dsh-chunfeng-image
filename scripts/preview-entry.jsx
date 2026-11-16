@@ -12,6 +12,7 @@ document.head.append(style)
 
 const KEY = 'dsh-chunfeng-image:state:v2'
 const view = window.__CF_VIEW || 'canvas'
+window.__CF_DEV_MENU = window.__CF_DEV_MENU || null
 
 const base = { ...initialState(), view: view === 'editor' ? 'canvas' : view, openCanvasId: null }
 if (view !== 'canvas' || view === 'editor' || true) {
@@ -19,6 +20,15 @@ if (view !== 'canvas' || view === 'editor' || true) {
   const cv = { ...newCanvas('霓虹街角'), ...seedCanvas() }
   base.canvases = [cv]
   if (view === 'editor') base.openCanvasId = cv.id
+}
+if (window.__CF_DEV_DEMO) {
+  base.channels = [{
+    id: 'ch_demo', name: '默认渠道', protocol: 'openai', baseUrl: 'https://api.openai.com/v1',
+    keyHint: 'demo', hasKey: true, enabled: true,
+    models: [{ id: 'seedream-5-pro', label: 'Seedream 5.0 Pro', caps: ['image'], enabled: true, source: 'manual' }],
+  }]
+  base.defaults.image.modelKey = 'ch_demo:seedream-5-pro'
+  window.__CF_DEV_PROMPT = '低角度仰拍，超广角镜头，强烈透视近大远小，一位年轻男生，撞色街头运动穿搭，宽松运动长裤，复古球衣，厚底运动鞋，银色链条项链，墨镜架在头顶，蹲姿，手持金属罐伸向镜头，罐身凝着水珠，背景是简洁的现代建筑，午后硬光'
 }
 localStorage.setItem(KEY, JSON.stringify(base))
 

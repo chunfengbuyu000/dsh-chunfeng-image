@@ -35,6 +35,9 @@ const P = {
   stop: <rect x="6" y="6" width="12" height="12" rx="1.5" />,
   grid: <><path d="M4 9h16M4 15h16M9 4v16M15 4v16" /></>,
   back: <><path d="M10 6l-5 6 5 6" /><path d="M5 12h14" /></>,
+  arrowUp: <><path d="M12 19V5" /><path d="M6 11l6-6 6 6" /></>,
+  frame: <><path d="M5 8V6a1 1 0 011-1h2M16 5h2a1 1 0 011 1v2M19 16v2a1 1 0 01-1 1h-2M8 19H6a1 1 0 01-1-1v-2" /></>,
+  bars: <><path d="M5 15v3M9.5 10v8M14 6v12M18.5 12v6" /></>,
 }
 
 export function Icon({ name, size = 16, ...rest }) {
