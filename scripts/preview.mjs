@@ -23,7 +23,8 @@ await build({
 
 const css = await import('node:fs/promises').then(f => f.readFile('preview/app.js', 'utf8'))
 // 把内联的 CSS 抽出来单独注入，避免 text loader 的字符串进 JS
-const html = `<!doctype html>
+const PAGES = ['editor', 'canvas', 'studio', 'prompts', 'assets', 'config', 'config-defaults', 'config-sources']
+const mk = (view) => `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -36,8 +37,10 @@ const html = `<!doctype html>
 </head>
 <body>
 <div id="root"></div>
+<script>window.__CF_VIEW = ${JSON.stringify(view)}</script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>`
-await writeFile(`${out}/index.html`, html)
+await writeFile(`${out}/index.html`, mk('editor'))
+for (const view of PAGES) await writeFile(`${out}/${view}.html`, mk(view))
 console.log('preview/index.html 已生成')

@@ -1,23 +1,58 @@
-:root {
-  color-scheme: dark;
-  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
-  --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.25rem; --text-xl: 1.5625rem; --text-2xl: 1.953rem; --text-3xl: 2.441rem;
-  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem); --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
-  --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
-  --color-error: oklch(72% 0.15 27); --color-success: oklch(76% 0.13 150);
-  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
-  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
-  --color-paper: oklch(13% 0.012 40); --color-paper-2: oklch(17.5% 0.016 40); --color-paper-3: oklch(22% 0.018 40);
-  --color-ink: oklch(94% 0.02 80); --color-ink-2: oklch(84% 0.025 70); --color-muted: oklch(72% 0.03 60);
-  --color-rule: oklch(96% 0.01 80 / 0.12);
-  --color-accent: oklch(70% 0.2 45); --color-accent-ink: oklch(14% 0.02 40); --color-focus: oklch(76% 0.19 56);
-  --heat-0: oklch(12% 0.012 40); --heat-1: oklch(22% 0.07 22); --heat-2: oklch(40% 0.16 27); --heat-3: oklch(60% 0.21 36);
-  --heat-4: oklch(76% 0.19 56); --heat-5: oklch(89% 0.14 78); --heat-6: oklch(98% 0.04 95);
-  --font-display: "Boska", "Iowan Old Style", Georgia, serif; --font-body: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-outlier: "Geist Mono", ui-monospace, monospace;
-  --radius-card: 28px; --radius-well: 16px; --radius-pill: 999px; --rule-hair: 1px;
-  --shadow-card: 0 50px 90px -30px oklch(8% 0.01 40 / 0.5);
-  --tracking-display: -0.02em; --display-weight: 500;
+/* 春风画布 · 令牌
+   全部走 DSH 别名令牌，跟随宿主深浅色，与「春风工作台」的画布同一套配色。
+   括号里是脱离 DSH 单独预览时的兜底值。 */
+.cf-app {
+  --cf-bg: var(--dsw-alias-bg-base, oklch(14.5% 0 0));
+  --cf-bg-sunken: var(--dsw-alias-bg-sunken, oklch(12% 0 0));
+  --cf-panel: var(--dsw-alias-bg-layer-2, oklch(18.5% 0 0));
+  --cf-panel-2: var(--dsw-alias-bg-layer-1, oklch(16.5% 0 0));
+  --cf-panel-3: var(--dsw-alias-bg-layer-3, oklch(21% 0 0));
+
+  --cf-fg: var(--dsw-alias-label-primary, oklch(96% 0 0));
+  --cf-fg-2: var(--dsw-alias-label-secondary, oklch(85% 0 0));
+  --cf-muted: var(--dsw-alias-label-tertiary, oklch(67% 0 0));
+  --cf-caption: var(--dsw-alias-label-caption, oklch(66% 0 0));
+
+  --cf-line: var(--dsw-alias-border-l2, oklch(100% 0 0 / 0.1));
+  --cf-line-strong: var(--dsw-alias-border-l4, oklch(100% 0 0 / 0.18));
+
+  --cf-primary: var(--dsw-alias-button-primary-fill, oklch(96% 0 0));
+  --cf-primary-fg: var(--dsw-alias-label-primary-inverted, oklch(16% 0 0));
+  --cf-primary-hover: var(--dsw-alias-button-primary-hover, oklch(90% 0 0));
+  --cf-link: var(--dsw-alias-link, oklch(72% 0.11 250));
+
+  --cf-hover: var(--dsw-alias-interactive-bg-hover, oklch(100% 0 0 / 0.07));
+  --cf-active: var(--dsw-alias-interactive-bg-active, oklch(100% 0 0 / 0.13));
+  --cf-focus: var(--dsw-alias-border-focus, oklch(72% 0.13 250));
+  --cf-danger: oklch(62% 0.19 27);
+
+  /* 尺寸与节奏 */
+  --cf-r-xs: var(--dsw-radius-xs, 6px);
+  --cf-r-sm: var(--dsw-radius-sm, 8px);
+  --cf-r-md: var(--dsw-radius-md, 12px);
+  --cf-r-lg: var(--dsw-radius-lg, 16px);
+  --cf-r-pill: 999px;
+  --cf-hair: 1px;
+
+  --cf-sp-1: 4px; --cf-sp-2: 8px; --cf-sp-3: 12px; --cf-sp-4: 16px;
+  --cf-sp-5: 24px; --cf-sp-6: 32px; --cf-sp-7: 48px;
+
+  --cf-fs-11: 11px; --cf-fs-12: 12px; --cf-fs-13: 13px; --cf-fs-14: 14px;
+  --cf-fs-16: 16px; --cf-fs-18: 18px; --cf-fs-22: 22px; --cf-fs-28: 28px; --cf-fs-36: 36px;
+
+  --cf-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --cf-dur: 160ms;
+
+  --cf-nav-h: 60px;
+  --cf-z-nav: 300;
+  --cf-z-float: 200;
+  --cf-z-menu: 400;
+  --cf-z-modal: 500;
+  --cf-z-toast: 600;
+
+  color-scheme: light dark;
+  font-family: var(--dsw-font-sans, ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-size: var(--cf-fs-14);
+  color: var(--cf-fg);
+  background: var(--cf-bg);
 }

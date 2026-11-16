@@ -1,16 +1,15 @@
 // dsh-chunfeng-image 浏览器半片：无限画布创作台。
 // main keyed slot 占主区整页，sidebar.panellist 放入口。
 import React from 'react'
-import { Desk } from './desk.jsx'
+import { App } from './shell.jsx'
 import { Icon } from './ui.jsx'
 
 const PANEL_ID = 'dsh-chunfeng-image'
 
-// 面板要靠 slots 服务注册：不声明 inject，apply 里 ctx.slots 是 undefined
 export const inject = ['slots']
 
 export function apply(ctx) {
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, Desk))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, App))
   ctx.effect(() => {
     let release = null
     const mount = () => {
