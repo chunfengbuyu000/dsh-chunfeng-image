@@ -130,7 +130,9 @@ export function modelsWithCap(channels, cap = 'image') {
     if (!ch.enabled) continue
     for (const m of ch.models) {
       if (!m.enabled) continue
-      if ((m.caps || []).includes(cap)) out.push({ key: modelKey(ch.id, m.id), model: m, channel: ch })
+      if ((m.caps || []).includes(cap)) {
+        out.push({ key: modelKey(ch.id, m.id), model: m, channel: ch, label: m.label || m.id })
+      }
     }
   }
   return out
@@ -246,4 +248,95 @@ export function openCanvasIn(state, canvasId) {
 /** 关掉画布回到列表。 */
 export function closeCanvasIn(state) {
   return { ...state, openCanvasId: null, view: 'canvas' }
+}
+
+
+// ---------- 读盘清洗（RC8） ----------
+// localStorage 可能是旧版本写的、手改的、写坏的。任何字段不对都在这里回落成安全值，
+// 保证上层永远拿到形状正确的 state —— 之前 canvases 不是数组会直接把整页打成白屏。
+
+const STATUSES = ['idle', 'running', 'done', 'failed']
+const numOr = (v, fallback) => (Number.isFinite(v) ? v : fallback)
+
+function sanitizeNode(raw, i) {
+  if (!raw || typeof raw !== 'object') return null
+  const type = NODE_TYPES[raw.type] ? raw.type : 'text'
+  const size = defaultSize(type)
+  const node = {
+    ...raw,
+    id: typeof raw.id === 'string' && raw.id ? raw.id : `n_${i}`,
+    type,
+    x: numOr(raw.x, 0),
+    y: numOr(raw.y, 0),
+    w: Math.max(40, numOr(raw.w, size.w)),
+    h: Math.max(40, numOr(raw.h, size.h)),
+    name: typeof raw.name === 'string' ? raw.name : '',
+    status: STATUSES.includes(raw.status) ? raw.status : 'idle',
+    z: numOr(raw.z, type === 'group' ? 3 : 2),
+  }
+  if (Array.isArray(raw.childIds)) node.childIds = raw.childIds.filter(id => typeof id === 'string')
+  return node
+}
+
+function sanitizeCanvas(raw, i) {
+  if (!raw || typeof raw !== 'object') return null
+  const nodes = Array.isArray(raw.nodes) ? raw.nodes.map(sanitizeNode).filter(Boolean) : []
+  const ids = new Set(nodes.map(n => n.id))
+  const edges = Array.isArray(raw.edges)
+    ? raw.edges
+        .filter(e => e && typeof e === 'object' && ids.has(e.from) && ids.has(e.to))
+        .map((e, k) => ({ id: typeof e.id === 'string' && e.id ? e.id : `e_${k}`, from: e.from, to: e.to }))
+    : []
+  return {
+    ...raw,
+    id: typeof raw.id === 'string' && raw.id ? raw.id : `cv_${i}`,
+    name: typeof raw.name === 'string' && raw.name ? raw.name : '未命名画布',
+    nodes,
+    edges,
+    grid: GRID_STYLES.some(g => g.id === raw.grid) ? raw.grid : 'dots',
+    camera: raw.camera && typeof raw.camera === 'object' ? raw.camera : { x: 0, y: 0, s: 1 },
+    updatedAt: numOr(raw.updatedAt, Date.now()),
+  }
+}
+
+/** 把任意读到的 JSON 收敛成可用的 state。 */
+export function sanitizeState(raw) {
+  const base = initialState()
+  if (!raw || typeof raw !== 'object') return base
+  const out = { ...base }
+  if (VIEWS.some(v => v.id === raw.view)) out.view = raw.view
+  if (typeof raw.configTab === 'string') out.configTab = raw.configTab
+
+  out.canvases = Array.isArray(raw.canvases) ? raw.canvases.map(sanitizeCanvas).filter(Boolean) : []
+  out.channels = Array.isArray(raw.channels)
+    ? raw.channels.filter(c => c && typeof c === 'object').map((c, i) => ({
+        ...c,
+        id: typeof c.id === 'string' && c.id ? c.id : `ch_${i}`,
+        name: typeof c.name === 'string' ? c.name : '',
+        baseUrl: typeof c.baseUrl === 'string' ? c.baseUrl : '',
+        keyHint: typeof c.keyHint === 'string' ? c.keyHint : '',
+        hasKey: Boolean(c.hasKey),
+        enabled: c.enabled !== false,
+        models: Array.isArray(c.models)
+          ? c.models.filter(m => m && typeof m === 'object').map((m, k) => ({
+              ...m,
+              id: typeof m.id === 'string' && m.id ? m.id : `m_${k}`,
+              label: typeof m.label === 'string' ? m.label : '',
+              caps: Array.isArray(m.caps) ? m.caps.filter(x => CAPS.some(c2 => c2.id === x)) : [],
+              enabled: m.enabled !== false,
+            }))
+          : [],
+      }))
+    : []
+  out.prompts = Array.isArray(raw.prompts) ? raw.prompts.filter(x => x && typeof x === 'object') : base.prompts
+  out.assets = Array.isArray(raw.assets) ? raw.assets.filter(x => x && typeof x === 'object') : base.assets
+  out.records = Array.isArray(raw.records) ? raw.records.filter(x => x && typeof x === 'object') : []
+  out.promptSources = Array.isArray(raw.promptSources) ? raw.promptSources.filter(x => x && typeof x === 'object') : []
+
+  if (raw.defaults && typeof raw.defaults === 'object' && raw.defaults.image && typeof raw.defaults.image === 'object') {
+    out.defaults = { ...base.defaults, ...raw.defaults, image: { ...base.defaults.image, ...raw.defaults.image } }
+  }
+
+  out.openCanvasId = out.canvases.some(c => c.id === raw.openCanvasId) ? raw.openCanvasId : null
+  return out
 }

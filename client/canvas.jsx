@@ -148,7 +148,7 @@ function NodeBody({ node, channels }) {
 }
 
 export function Canvas({
-  nodes, edges, selection, channels, grid, minimap,
+  nodes, edges, selection, channels, grid, minimap, tool = 'select',
   onSelection, onMove, onResize, onConnect, onRemoveEdge, onOpenNode,
   camera, camApi, showHint,
 }) {
@@ -225,6 +225,9 @@ export function Canvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 让外面（左栏「适应」）能调到真正的取景
+  React.useEffect(() => { camApi.fit = fit }, [camApi, fit])
+
   const zoomBy = (factor) => {
     const el = worldRef.current
     if (!el) return
@@ -246,7 +249,8 @@ export function Canvas({
   }
 
   const onDown = (e) => {
-    if (e.button === 1 || space) {
+    // RC5：空格、中键、或选中「移动」工具时都是平移
+    if (e.button === 1 || space || tool === 'pan') {
       e.preventDefault()
       pan.current = { x: e.clientX, y: e.clientY, cx: cam.current.tx, cy: cam.current.ty }
       stageRef.current.classList.add('is-grabbing')
@@ -277,7 +281,8 @@ export function Canvas({
       const p = toWorld(e.clientX, e.clientY)
       const r = resize.current
       const w = Math.max(140, Math.round(p.x - r.x))
-      const h = r.locked ? Math.round(w / r.ratio) : Math.max(80, Math.round(p.y - r.y))
+      // RC6：h 应该是 w × (高/宽)，之前写成 w ÷ 比例，3:4 被算成 4:3
+      const h = r.locked ? Math.round(w * r.ratio) : Math.max(80, Math.round(p.y - r.y))
       onResize(r.id, w, h)
       return
     }
@@ -307,7 +312,9 @@ export function Canvas({
     }
     if (edgeFrom.current) {
       const p = toWorld(e.clientX, e.clientY)
-      const target = nodes.find(n => p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h)
+      const target = nodes
+        .filter(n => n.type !== 'group')
+        .find(n => p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h)
       if (target && canConnect(nodes, edges, edgeFrom.current, target.id)) onConnect(edgeFrom.current, target.id)
       edgeFrom.current = null
       setEdgePreview(null)
@@ -315,8 +322,9 @@ export function Canvas({
   }
 
   const nodeDown = (e, node) => {
+    // 先判断平移：要让事件冒泡到舞台，所以必须在 stopPropagation 之前返回
+    if (e.button === 1 || space || tool === 'pan') return
     e.stopPropagation()
-    if (space || e.button === 1) return
     const additive = e.shiftKey || e.metaKey || e.ctrlKey
     const already = selection.includes(node.id)
     let ids
@@ -333,8 +341,10 @@ export function Canvas({
   }
 
   const resizeDown = (e, node) => {
-    const [rw, rh] = (node.ratio || '1:1').split(':').map(Number)
-    resize.current = { id: node.id, x: node.x, y: node.y, locked: node.locked !== false, ratio: rh / rw }
+    const [rw, rh] = String(node.ratio || '1:1').split(':').map(Number)
+    const ratio = Number.isFinite(rw) && Number.isFinite(rh) && rw > 0 && rh > 0 ? rh / rw : 1
+    // 只有图片节点默认锁比例；文本/配置/音频自由缩放
+    resize.current = { id: node.id, x: node.x, y: node.y, locked: node.type === 'image' && node.locked !== false, ratio }
     stageRef.current.setPointerCapture(e.pointerId)
   }
 
@@ -351,7 +361,7 @@ export function Canvas({
   return (
     <div className="cf-board">
       <div
-        className={`cf-stage ${gridClass}${space ? ' is-grab' : ''}`}
+        className={`cf-stage ${gridClass}${space || tool === 'pan' ? ' is-grab' : ''}`}
         ref={stageRef}
         onPointerDown={onDown}
         onPointerMove={onMovePointer}

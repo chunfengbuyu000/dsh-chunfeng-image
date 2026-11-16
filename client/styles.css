@@ -22,8 +22,9 @@
   grid-template-rows: auto minmax(0, 1fr);
   overflow: clip;
 }
-/* 内容排在环境光之上 */
-.cf-app > :not(.cf-ambient) { position: relative; z-index: 1; }
+/* 内容排在环境光之上。toast 要排除掉：
+   它必须是 fixed 且不吃点击，否则会被这条规则改成 grid 子项、撑成全宽条盖住输入条。 */
+.cf-app > :not(.cf-ambient):not(.cf-toast) { position: relative; z-index: 1; }
 
 /* 环境光：三团极慢漂移的柔光，给纯令牌底加一点体积和色相变化。
    和「春风工作台」同一配方：56vmax、blur 70px、42s。 */
@@ -412,7 +413,7 @@
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line);
   pointer-events: none;
 }
-.cf-node.is-group .cf-node-head { pointer-events: auto; }
+.cf-node.is-group .cf-node-group-head { pointer-events: auto; }
 
 .cf-node-head {
   display: flex;
@@ -923,6 +924,7 @@
 .cf-input--tiny { height: 30px; min-height: 30px; padding: 4px 6px; font-size: var(--cf-fs-12); }
 
 .cf-toast {
+  pointer-events: none;
   position: fixed;
   z-index: var(--cf-z-toast);
   left: 50%;

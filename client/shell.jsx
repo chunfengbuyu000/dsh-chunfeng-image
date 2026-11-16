@@ -2,7 +2,7 @@
 import React from 'react'
 import css from './css.js'
 import { Boundary, Icon, IconBtn, Toast } from './ui.jsx'
-import { VIEWS, initialState, newCanvas, newId, seedCanvas, currentView, navigate, openCanvasIn, closeCanvasIn } from './store.js'
+import { VIEWS, initialState, newCanvas, newId, seedCanvas, sanitizeState, currentView, navigate, openCanvasIn, closeCanvasIn } from './store.js'
 import { CanvasListPage, CanvasEditor } from './pages/canvas.jsx'
 import { StudioPage } from './pages/studio.jsx'
 import { PromptsPage } from './pages/prompts.jsx'
@@ -24,16 +24,14 @@ function load() {
 
 export function App() {
   const [state, setState] = React.useState(() => {
-    const init = initialState()
     const saved = load()
-    const merged = saved ? { ...init, ...saved } : init
-    // 首次打开给一张示例画布，避免画布页空着
-    if (!merged.canvases.length && !saved) {
-      // 给一张示例画布，但停在列表页：一进来就进编辑器会让人以为导航失灵
-      merged.canvases = [{ ...newCanvas('霓虹街角'), ...seedCanvas() }]
-      merged.openCanvasId = null
-    }
-    return merged
+    // 读到的任何数据都先清洗一遍：字段缺失、类型不对、旧版本结构都在这里收敛
+    if (saved) return sanitizeState(saved)
+    // 首次启动给一张示例画布，但停在列表页（一进来就进编辑器会让人以为导航失灵）
+    const init = initialState()
+    init.canvases = [{ ...newCanvas('霓虹街角'), ...seedCanvas() }]
+    init.openCanvasId = null
+    return init
   })
   const [studioPrompt, setStudioPrompt] = React.useState('')
   const [returnTo, setReturnTo] = React.useState(null)
@@ -60,13 +58,24 @@ export function App() {
     setState(s => navigate(s, target))
   }
 
-  const updateCanvas = (canvasId, p) => patch({
-    canvases: state.canvases.map(c => (c.id === canvasId ? { ...c, ...p, updatedAt: Date.now() } : c)),
-  })
+  // RC1：必须用函数式更新。之前用渲染闭包里的 state.canvases 重建数组，
+  // 同一 tick 内连续两次写入（先 nodes 再 edges）会互相覆盖，表现为
+  // 「删了边没删节点」「⌘D 无效」「生成后内容回退」。
+  // p 既可以是对象补丁，也可以是 (canvas) => 补丁，方便一次原子提交多个字段。
+  const updateCanvas = (canvasId, p) =>
+    setState(s => ({
+      ...s,
+      canvases: s.canvases.map(c => {
+        if (c.id !== canvasId) return c
+        const next = typeof p === 'function' ? p(c) : p
+        return { ...c, ...next, updatedAt: Date.now() }
+      }),
+    }))
 
   const createCanvas = () => {
-    const cv = { ...newCanvas(), ...seedCanvas() }
-    patch({ canvases: [cv, ...state.canvases], openCanvasId: cv.id, view: 'canvas' })
+    // 新建必须是空白画布：之前把演示场景一起种进去，每张新画布都带 6 节点 4 连线
+    const cv = newCanvas()
+    setState(s => ({ ...s, canvases: [cv, ...s.canvases], openCanvasId: cv.id, view: 'canvas' }))
     say('已新建画布')
   }
 
@@ -85,7 +94,7 @@ export function App() {
           edges: Array.isArray(data.edges) ? data.edges : [],
           grid: data.grid || 'dots',
         }
-        patch({ canvases: [cv, ...state.canvases], openCanvasId: cv.id, view: 'canvas' })
+        setState(s => ({ ...s, canvases: [cv, ...s.canvases], openCanvasId: cv.id, view: 'canvas' }))
         say('画布已导入')
       } catch {
         say('导入失败，请检查文件格式', 'error')
@@ -176,7 +185,7 @@ export function App() {
           onOpen={(id) => setState(s => openCanvasIn(s, id))}
           onCreate={createCanvas}
           onRename={(id, name) => updateCanvas(id, { name })}
-          onDelete={(id) => patch({ canvases: state.canvases.filter(c => c.id !== id), openCanvasId: null })}
+          onDelete={(id) => setState(s => ({ ...s, canvases: s.canvases.filter(c => c.id !== id), openCanvasId: null }))}
           onImport={importCanvas}
         />
       ) : null}
@@ -188,8 +197,8 @@ export function App() {
           records={state.records}
           prompt={studioPrompt}
           onPrompt={setStudioPrompt}
-          onCreateRecord={(rec) => patch({ records: [rec, ...state.records] })}
-          onDeleteRecords={(ids) => patch({ records: state.records.filter(r => !ids.includes(r.id)) })}
+          onCreateRecord={(rec) => setState(s => ({ ...s, records: [rec, ...s.records] }))}
+          onDeleteRecords={(ids) => setState(s => ({ ...s, records: s.records.filter(r => !ids.includes(r.id)) }))}
           onLookupPrompts={() => { setReturnTo('studio'); patch({ view: 'prompts', openCanvasId: null }) }}
           say={say}
         />
@@ -209,7 +218,7 @@ export function App() {
         <AssetsPage
           assets={state.assets}
           onSave={(next) => patch({ assets: next })}
-          onDelete={(id) => patch({ assets: state.assets.filter(a => a.id !== id) })}
+          onDelete={(id) => setState(s => ({ ...s, assets: s.assets.filter(a => a.id !== id) }))}
           onImport={() => say('资产包导入接 Host 后可用')}
           say={say}
         />

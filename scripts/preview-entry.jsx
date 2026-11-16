@@ -31,6 +31,6 @@ if (seed === 'demo' || window.__CF_DEV_DEMO) {
   base.defaults.image.modelKey = 'ch_demo:seedream-5-pro'
   window.__CF_DEV_PROMPT = '低角度仰拍，超广角镜头，强烈透视近大远小，一位年轻男生，撞色街头运动穿搭，宽松运动长裤，复古球衣，厚底运动鞋，银色链条项链，墨镜架在头顶，蹲姿，手持金属罐伸向镜头，罐身凝着水珠，背景是简洁的现代建筑，午后硬光'
 }
-localStorage.setItem(KEY, JSON.stringify(base))
+if (!new URLSearchParams(location.search).has('raw')) localStorage.setItem(KEY, JSON.stringify(base))
 
 createRoot(document.getElementById('root')).render(React.createElement(App))

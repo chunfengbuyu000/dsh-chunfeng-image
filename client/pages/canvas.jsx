@@ -165,33 +165,28 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
     }
   }, [one?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 写入前的基准永远取最新一版画布：定时器等异步回调里也能拿到正确的前值，
-  // 同时支持「传数组」和「传函数」两种写法（后者之前会把函数直接写进 nodes）。
-  const latest = React.useRef(canvas)
-  latest.current = canvas
-  const write = (key, next) => {
-    const base = latest.current[key] || []
-    const value = typeof next === 'function' ? next(base) : next
-    onChange({ [key]: value, updatedAt: Date.now() })
-  }
-  const setNodes = (next) => write('nodes', next)
-  const setEdges = (next) => write('edges', next)
+  // RC1：所有写入都通过一次 onChange 提交，基准由父层函数式 setState 提供，
+  // 所以同一 tick 里改 nodes 和 edges 不会再互相覆盖（之前「删边不删点」的根因）。
+  const mutate = (produce) => onChange(produce)
 
-  const updateNode = (id, patch) => setNodes(nodes.map(n => (n.id === id ? { ...n, ...patch } : n)))
+  const updateNode = (id, patch) =>
+    mutate(c => ({ nodes: c.nodes.map(n => (n.id === id ? { ...n, ...patch } : n)) }))
 
   const onMove = (ids, dx, dy) => {
     const set = new Set(ids)
-    setNodes(nodes.map(n => (set.has(n.id) ? { ...n, x: Math.round(n.x + dx), y: Math.round(n.y + dy) } : n)))
+    mutate(c => ({
+      nodes: c.nodes.map(n => (set.has(n.id) ? { ...n, x: Math.round(n.x + dx), y: Math.round(n.y + dy) } : n)),
+    }))
   }
   const onResize = (id, w, h) => updateNode(id, { w, h })
-  const onConnect = (from, to) => setEdges([...edges, { id: newId('e'), from, to }])
-  const onRemoveEdge = (id) => setEdges(edges.filter(e => e.id !== id))
+  const onConnect = (from, to) => mutate(c => ({ edges: [...c.edges, { id: newId('e'), from, to }] }))
+  const onRemoveEdge = (id) => mutate(c => ({ edges: c.edges.filter(e => e.id !== id) }))
 
   const addNode = (type) => {
     const c = cam.current
     const at = { x: (window.innerWidth / 2 - c.tx) / c.s, y: (window.innerHeight / 2 - c.ty) / c.s }
     const n = makeNode(type, at, type === 'config' ? { modelKey: modelKey || imageModels[0]?.key || '', ratio, count } : {})
-    setNodes([...nodes, n])
+    mutate(cv => ({ nodes: [...cv.nodes, n] }))
     setSelection([n.id])
     say?.(`已新建${NODE_TYPES[type]}节点`)
   }
@@ -200,23 +195,29 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const generate = () => {
     const text = prompt.trim()
     if (!text) return
+
     const target = one && one.type === 'image' ? one : null
     if (target) {
-      updateNode(target.id, { prompt: text, status: 'running', ratio })
-      setTimeout(() => updateNode(target.id, { status: 'done' }), 900)
+      const id = target.id
+      mutate(c => ({ nodes: c.nodes.map(n => (n.id === id ? { ...n, prompt: text, status: 'running', ratio } : n)) }))
+      // 900ms 后只翻状态，其余字段用「此刻」的值 —— 之前写回的是点击那一刻的旧快照，
+      // 表现为提示词/比例被改回去。
+      setTimeout(() => {
+        mutate(c => ({ nodes: c.nodes.map(n => (n.id === id && n.status === 'running' ? { ...n, status: 'done' } : n)) }))
+      }, 900)
       say?.('开始生成')
       return
     }
-    // 没有选中图片节点：按张数新建
+
     const c = cam.current
-    const base = { x: (window.innerWidth / 2 - c.tx) / c.s, y: (window.innerHeight / 2 - c.ty) / c.s }
-    const made = Array.from({ length: count }, (_, i) => makeNode('image', { x: base.x + i * 260, y: base.y }, {
-      prompt: text, ratio, status: 'running',
-    }))
-    setNodes([...nodes, ...made])
+    const origin = { x: (window.innerWidth / 2 - c.tx) / c.s, y: (window.innerHeight / 2 - c.ty) / c.s }
+    const made = Array.from({ length: count }, (_, i) =>
+      makeNode('image', { x: origin.x + i * 260, y: origin.y }, { prompt: text, ratio, status: 'running' }))
+    const madeIds = new Set(made.map(n => n.id))
+    mutate(cv => ({ nodes: [...cv.nodes, ...made] }))
     setSelection(made.map(n => n.id))
     setTimeout(() => {
-      setNodes(prev => prev.map(n => (made.some(m => m.id === n.id) ? { ...n, status: 'done' } : n)))
+      mutate(cv => ({ nodes: cv.nodes.map(n => (madeIds.has(n.id) && n.status === 'running' ? { ...n, status: 'done' } : n)) }))
     }, 900)
     setPrompt('')
     say?.('开始生成')
@@ -225,15 +226,21 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const wrap = () => {
     const g = wrapInGroup(nodes, selection)
     if (!g) return
-    setNodes([g, ...nodes])
+    mutate(c => ({ nodes: [g, ...c.nodes] }))
     setSelection([g.id])
   }
+
+  // 分组只删框、保留子节点（等于取消分组）；其余节点连同两端连线一次原子删掉
   const removeSelected = () => {
-    const set = new Set(selection)
-    setNodes(nodes.filter(n => !set.has(n.id)))
-    setEdges(edges.filter(e => !set.has(e.from) && !set.has(e.to)))
+    const drop = new Set(selection)
+    if (!drop.size) return
+    mutate(c => ({
+      nodes: c.nodes.filter(n => !drop.has(n.id)),
+      edges: c.edges.filter(e => !drop.has(e.from) && !drop.has(e.to)),
+    }))
     setSelection([])
   }
+
   const duplicate = () => {
     const picks = nodes.filter(n => selection.includes(n.id))
     if (!picks.length) return
@@ -244,9 +251,8 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
       return { ...n, id, x: n.x + 40, y: n.y + 40, status: 'idle' }
     })
     const inner = edges.filter(e => map[e.from] && map[e.to]).map(e => ({ id: newId('e'), from: map[e.from], to: map[e.to] }))
-    setNodes([...nodes, ...copies])
-    setEdges([...edges, ...inner])
-    setSelection(copies.map(c => c.id))
+    mutate(c => ({ nodes: [...c.nodes, ...copies], edges: [...c.edges, ...inner] }))
+    setSelection(copies.map(n => n.id))
   }
 
   React.useEffect(() => {
@@ -285,7 +291,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
             aria-label={t.label}
             aria-pressed={tool === t.id}
             onClick={() => {
-              if (t.id === 'focus') { setCamera({ ...cam.current, s: cam.current.s }); return }
+              if (t.id === 'focus') { camApi.fit?.(); return }
               if (['text', 'image', 'audio', 'config', 'group'].includes(t.id)) { addNode(t.id); return }
               setTool(t.id)
             }}
@@ -302,6 +308,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
           selection={selection}
           channels={channels}
           grid={canvas.grid || 'dots'}
+          tool={tool}
           minimap
           camera={camera}
           camApi={camApi}
