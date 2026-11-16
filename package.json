@@ -37,7 +37,8 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "watch": "node scripts/build.mjs --watch"
+    "watch": "node scripts/build.mjs --watch",
+    "test": "node scripts/selftest.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.10"

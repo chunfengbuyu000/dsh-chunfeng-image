@@ -2,7 +2,7 @@
 import React from 'react'
 import css from './css.js'
 import { Icon, IconBtn, Toast } from './ui.jsx'
-import { VIEWS, initialState, newCanvas, newId, seedCanvas } from './store.js'
+import { VIEWS, initialState, newCanvas, newId, seedCanvas, currentView, navigate, openCanvasIn, closeCanvasIn } from './store.js'
 import { CanvasListPage, CanvasEditor } from './pages/canvas.jsx'
 import { StudioPage } from './pages/studio.jsx'
 import { PromptsPage } from './pages/prompts.jsx'
@@ -29,9 +29,9 @@ export function App() {
     const merged = saved ? { ...init, ...saved } : init
     // 首次打开给一张示例画布，避免画布页空着
     if (!merged.canvases.length && !saved) {
-      const cv = { ...newCanvas('霓虹街角'), ...seedCanvas() }
-      merged.canvases = [cv]
-      merged.openCanvasId = cv.id
+      // 给一张示例画布，但停在列表页：一进来就进编辑器会让人以为导航失灵
+      merged.canvases = [{ ...newCanvas('霓虹街角'), ...seedCanvas() }]
+      merged.openCanvasId = null
     }
     return merged
   })
@@ -53,12 +53,11 @@ export function App() {
 
   const patch = (p) => setState(s => ({ ...s, ...p }))
   const openCanvas = state.canvases.find(c => c.id === state.openCanvasId) || null
-  const view = openCanvas ? 'editor' : state.view
+  const view = currentView(state)
 
   const go = (target) => {
     setReturnTo(null)
-    if (target === 'canvas') patch({ view: 'canvas', openCanvasId: null })
-    else patch({ view: target })
+    setState(s => navigate(s, target))
   }
 
   const updateCanvas = (canvasId, p) => patch({
@@ -164,7 +163,7 @@ export function App() {
           channels={state.channels}
           defaults={state.defaults.image}
           onChange={(p) => updateCanvas(openCanvas.id, p)}
-          onBack={() => patch({ openCanvasId: null })}
+          onBack={() => setState(s => closeCanvasIn(s))}
           say={say}
         />
       ) : null}
@@ -172,7 +171,7 @@ export function App() {
       {view === 'canvas' ? (
         <CanvasListPage
           canvases={state.canvases}
-          onOpen={(id) => patch({ openCanvasId: id })}
+          onOpen={(id) => setState(s => openCanvasIn(s, id))}
           onCreate={createCanvas}
           onRename={(id, name) => updateCanvas(id, { name })}
           onDelete={(id) => patch({ canvases: state.canvases.filter(c => c.id !== id), openCanvasId: null })}

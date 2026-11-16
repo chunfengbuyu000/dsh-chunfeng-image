@@ -257,7 +257,19 @@
   transition: background-color var(--cf-dur) var(--cf-ease);
 }
 .cf-canvas-row:hover { background: var(--cf-hover); }
-.cf-canvas-name { font-size: var(--cf-fs-14); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-canvas-name {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: var(--cf-fs-14);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--cf-r-xs);
+  transition: color var(--cf-dur) var(--cf-ease);
+}
+.cf-canvas-name:hover { color: var(--cf-fg); text-decoration: underline; text-underline-offset: 3px; }
 .cf-canvas-meta { font-size: var(--cf-fs-12); color: var(--cf-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cf-canvas-row-actions { display: flex; gap: var(--cf-sp-1); opacity: 0; transition: opacity var(--cf-dur) var(--cf-ease); }
 .cf-canvas-row:hover .cf-canvas-row-actions,
@@ -267,7 +279,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--cf-sp-4);
-  padding: 0 var(--cf-sp-4) var(--cf-sp-2);
+  padding: var(--cf-sp-3) var(--cf-sp-4) var(--cf-sp-2);
   border-bottom: var(--cf-hair) solid var(--cf-line);
   margin-bottom: var(--cf-sp-2);
   font-size: var(--cf-fs-11);

@@ -225,3 +225,25 @@ export function wrapInGroup(nodes, selection) {
     y: Math.round(minY),
   })
 }
+
+// ---------- 视图状态（抽成纯函数，便于自测） ----------
+
+/** 当前实际显示的视图：打开了画布就是编辑器，否则是 state.view。 */
+export function currentView(state) {
+  return state.openCanvasId ? 'editor' : state.view
+}
+
+/** 点顶栏导航后的新状态：离开编辑器必须同时清掉 openCanvasId。 */
+export function navigate(state, target) {
+  return { ...state, view: target, openCanvasId: null }
+}
+
+/** 打开一张画布。 */
+export function openCanvasIn(state, canvasId) {
+  return { ...state, openCanvasId: canvasId }
+}
+
+/** 关掉画布回到列表。 */
+export function closeCanvasIn(state) {
+  return { ...state, openCanvasId: null, view: 'canvas' }
+}
