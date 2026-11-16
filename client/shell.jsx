@@ -115,6 +115,7 @@ export function App() {
   return (
     <div className="cf-app">
       <style>{css}</style>
+      <div className="cf-ambient" aria-hidden="true"><i /><i /><i /></div>
 
       <header className="cf-nav">
         <span className="cf-brand">

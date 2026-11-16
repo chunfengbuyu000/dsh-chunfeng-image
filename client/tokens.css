@@ -21,6 +21,10 @@
   --cf-primary-hover: var(--dsw-alias-button-primary-hover, oklch(90% 0 0));
   --cf-link: var(--dsw-alias-link, oklch(72% 0.11 250));
 
+  /* 玻璃底：和春风工作台同一配方 */
+  --cf-glass: color-mix(in srgb, var(--cf-panel) 72%, transparent);
+  --cf-glass-soft: color-mix(in srgb, var(--cf-panel) 55%, transparent);
+
   --cf-hover: var(--dsw-alias-interactive-bg-hover, oklch(100% 0 0 / 0.07));
   --cf-active: var(--dsw-alias-interactive-bg-active, oklch(100% 0 0 / 0.13));
   --cf-focus: var(--dsw-alias-border-focus, oklch(72% 0.13 250));
