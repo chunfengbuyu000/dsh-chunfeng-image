@@ -1,0 +1,26 @@
+[
+ {
+  "shape": "Workbench (app screen)",
+  "theme": "kiln",
+  "axes": "dark/high-contrast-serif/warm",
+  "hero": "none, app screen",
+  "nav": "app topbar + left tool rail",
+  "footer": "status strip",
+  "imagery": "the work itself: each node picture on a near-black ground",
+  "photos": [],
+  "sections": [
+   "topbar",
+   "tool rail",
+   "infinite canvas",
+   "side panel",
+   "status strip"
+  ],
+  "signature": "one ember per generating node, the canvas is the whole page",
+  "waived": [],
+  "answered": [],
+  "prompt": "infinite canvas AI image generation node editor",
+  "entry": "dsh-chunfeng-image client",
+  "date": "2026-11-16",
+  "mode": "build"
+ }
+]
