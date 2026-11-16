@@ -114,6 +114,8 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const [modelKey, setModelKey] = React.useState(defaults?.modelKey || '')
   const [menu, setMenu] = React.useState(typeof window !== 'undefined' ? (window.__CF_DEV_MENU || null) : null)
   const [refs, setRefs] = React.useState([])
+  const [cw, setCw] = React.useState(1024)
+  const [ch, setCh] = React.useState(1024)
   const [camera, setCamera] = React.useState(null)
   const menuRef = React.useRef(null)
   const fileRef = React.useRef(null)
@@ -307,7 +309,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
           <textarea
             className="cf-composer-input"
             value={prompt}
-            rows={4}
+            rows={3}
             placeholder={one?.type === 'image' ? '描述你想把这张图改成什么' : '描述画面主体、风格、构图、光线和用途'}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
@@ -350,7 +352,13 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
 
             {/* 比例 */}
             <div className="cf-bar-slot">
-              <button type="button" className="cf-bar-btn" onClick={() => setMenu(menu === 'ratio' ? null : 'ratio')}
+              <button type="button" className="cf-bar-btn" onClick={() => {
+                if (menu !== 'ratio') {
+                  const custom = ratio.split(':').map(Number)
+                  if (custom.length === 2 && custom.every(n => Number.isFinite(n) && n > 0)) { setCw(custom[0]); setCh(custom[1]) }
+                }
+                setMenu(menu === 'ratio' ? null : 'ratio')
+              }}
                 aria-expanded={menu === 'ratio'} aria-haspopup="menu">
                 <Icon name="frame" size={15} />
                 {ratio}
@@ -365,6 +373,18 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
                       <span className="cf-menu-meta">{r.w} × {r.h}</span>
                     </button>
                   ))}
+                  <div className="cf-menu-sep" />
+                  <p className="cf-menu-head">自定义尺寸</p>
+                  <div className="cf-menu-custom">
+                    <input className="cf-input cf-input--num cf-input--tiny" value={cw} aria-label="宽"
+                      onChange={e => setCw(Number(e.target.value.replace(/\D/g, '')) || 0)} />
+                    <span className="cf-menu-x" aria-hidden="true">×</span>
+                    <input className="cf-input cf-input--num cf-input--tiny" value={ch} aria-label="高"
+                      onChange={e => setCh(Number(e.target.value.replace(/\D/g, '')) || 0)} />
+                    <button type="button" className="cf-btn cf-btn--primary cf-btn--sm"
+                      disabled={!cw || !ch}
+                      onClick={() => { setRatio(`${cw}:${ch}`); setMenu(null) }}>应用</button>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -420,7 +440,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
             ) : null}
 
               <button type="button" className="cf-send" onClick={generate} disabled={!prompt.trim()}
-                aria-label="生成" title="生成（Enter）">
+                aria-label="发送消息" data-tip="发送消息">
                 <Icon name="arrowUp" size={17} />
               </button>
             </div>

@@ -509,13 +509,13 @@
   position: absolute;
   z-index: var(--cf-z-float);
   left: 50%;
-  bottom: var(--cf-sp-5);
+  bottom: var(--cf-sp-4);
   transform: translateX(-50%);
-  width: min(760px, calc(100% - var(--cf-sp-7)));
+  width: min(532px, calc(100% - var(--cf-sp-6)));
   display: grid;
   gap: var(--cf-sp-2);
-  gap: 12px;
-  padding: 8px 8px 6px;
+  gap: 9px;
+  padding: 6px 6px 4px;
   border-radius: var(--cf-r-panel);
   background: var(--cf-input-surface);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line), 0 16px 40px -20px oklch(0% 0 0 / 0.6);
@@ -524,15 +524,15 @@
 
 .cf-composer-input {
   width: 100%;
-  min-height: 56px;
-  max-height: 160px;
+  min-height: 48px;
+  max-height: 132px;
   resize: none;
   border: 0;
   background: transparent;
   color: var(--cf-fg);
-  font-size: var(--cf-fs-14);
-  line-height: 1.6;
-  padding: 10px var(--cf-sp-3);
+  font-size: var(--cf-fs-13);
+  line-height: 1.55;
+  padding: 8px var(--cf-sp-3);
   border-radius: var(--cf-r-sm);
   background: var(--cf-bg);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-muted);
@@ -546,7 +546,7 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  min-height: 34px;
+  min-height: 32px;
 }
 .cf-composer-left,
 .cf-composer-right { display: flex; align-items: center; gap: 4px; min-width: 0; }
@@ -558,10 +558,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding-inline: 10px;
+  height: 30px;
+  padding-inline: 8px;
   border-radius: var(--cf-r-sm);
-  font-size: var(--cf-fs-13);
+  font-size: var(--cf-fs-12);
   color: var(--cf-fg-2);
   white-space: nowrap;
   transition: background-color var(--cf-dur) var(--cf-ease), color var(--cf-dur) var(--cf-ease);
@@ -588,9 +588,10 @@
 
 /* 发送圆钮：和 DSH 客户端同一个圆、同一对颜色，空文本时 0.4 透明度 */
 .cf-send {
+  position: relative;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border-radius: var(--cf-r-pill);
@@ -600,6 +601,26 @@
 }
 .cf-send:hover:not(:disabled) { background: var(--cf-send-hover); }
 .cf-send:disabled { opacity: 0.4; cursor: default; }
+
+/* 悬浮提示：和 DSH 一致，深灰底浅字，浮在按钮上方 */
+.cf-send[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  padding: 4px 8px;
+  border-radius: var(--cf-r-xs);
+  background: var(--cf-tip-bg);
+  color: var(--cf-tip-fg);
+  font-size: var(--cf-fs-12);
+  line-height: 18px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  box-shadow: 0 8px 20px -12px oklch(0% 0 0 / 0.7);
+}
+.cf-send[data-tip]:hover:not(:disabled)::after { opacity: 1; }
 
 .cf-model-pill {
   display: inline-flex;
@@ -633,8 +654,8 @@
 .cf-zoom {
   position: absolute;
   z-index: var(--cf-z-float);
-  left: var(--cf-sp-4);
-  bottom: var(--cf-sp-4);
+  right: var(--cf-sp-4);
+  top: var(--cf-sp-4);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -897,6 +918,9 @@
 .cf-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cf-menu-meta { margin-inline-start: auto; color: var(--cf-caption); font-size: var(--cf-fs-11); white-space: nowrap; }
 .cf-menu-empty { padding: 8px var(--cf-sp-3); font-size: var(--cf-fs-12); color: var(--cf-muted); line-height: 1.5; }
+.cf-menu-custom { display: flex; align-items: center; gap: 6px; padding: 2px var(--cf-sp-2) 6px; }
+.cf-menu-x { color: var(--cf-caption); font-size: var(--cf-fs-12); flex: 0 0 auto; }
+.cf-input--tiny { height: 30px; min-height: 30px; padding: 4px 6px; font-size: var(--cf-fs-12); }
 
 .cf-toast {
   position: fixed;
@@ -931,7 +955,7 @@
   .cf-editor { grid-template-columns: 48px minmax(0, 1fr); }
   .cf-editor-hint { display: none; }
   .cf-composer { width: calc(100% - var(--cf-sp-4)); bottom: var(--cf-sp-2); }
-  .cf-zoom { left: var(--cf-sp-2); bottom: 132px; }
+  .cf-zoom { right: var(--cf-sp-2); top: var(--cf-sp-2); }
   .cf-minimap { display: none; }
   .cf-page-actions { margin-inline-start: 0; flex-wrap: wrap; }
   .cf-page-head { flex-wrap: wrap; }

@@ -24,9 +24,13 @@
   /* 发送钮配色跟 DSH 客户端一致：
      InputBar.module.css 注明「34px circle, #3964FE light / #679EFE dark」，
      即 --dsw-alias-button-info-fill 那一对，不是 button-primary。 */
-  --cf-send: var(--dsw-alias-button-info-fill, light-dark(#3964fe, #679efe));
-  --cf-send-hover: var(--dsw-alias-button-info-hover, light-dark(#2f57e8, #7fb0ff));
-  --cf-send-fg: var(--dsw-alias-label-on-color, #fff);
+  /* 实测自 DSH 客户端截图：默认 #79abff，悬浮加深到 #4375e3。
+     浅色主题按源码注记用 500 档 #3964fe。 */
+  --cf-send: light-dark(#3964fe, #79abff);
+  --cf-send-hover: light-dark(#2f57e8, #4375e3);
+  --cf-send-fg: #fff;
+  --cf-tip-bg: #434549;
+  --cf-tip-fg: #d8d9dd;
 
   /* 输入卡片与选择器的表面色，同样取 DSH 的同名令牌 */
   --cf-input-surface: var(--dsw-specific-input-major, var(--cf-panel));
