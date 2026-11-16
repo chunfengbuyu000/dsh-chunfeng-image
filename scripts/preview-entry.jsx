@@ -21,7 +21,8 @@ if (view !== 'canvas' || view === 'editor' || true) {
   base.canvases = [cv]
   if (view === 'editor') base.openCanvasId = cv.id
 }
-if (window.__CF_DEV_DEMO) {
+const seed = new URLSearchParams(location.search).get('seed')
+if (seed === 'demo' || window.__CF_DEV_DEMO) {
   base.channels = [{
     id: 'ch_demo', name: '默认渠道', protocol: 'openai', baseUrl: 'https://api.openai.com/v1',
     keyHint: 'demo', hasKey: true, enabled: true,
