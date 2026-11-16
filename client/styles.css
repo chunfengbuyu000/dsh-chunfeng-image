@@ -937,6 +937,29 @@
 }
 .cf-toast.is-error { color: var(--cf-danger); }
 
+/* ---------- 出错兜底 ---------- */
+
+.cf-crash {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--cf-sp-2);
+  height: 100%;
+  padding: var(--cf-sp-6);
+  text-align: center;
+}
+.cf-crash-icon { color: var(--cf-muted); }
+.cf-crash-title { font-size: var(--cf-fs-16); font-weight: 500; }
+.cf-crash-detail {
+  max-width: 46ch;
+  font-size: var(--cf-fs-12);
+  color: var(--cf-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.cf-crash-actions { display: flex; gap: var(--cf-sp-2); margin-top: var(--cf-sp-2); }
+
 /* ---------- 窄屏 ---------- */
 
 @media (max-width: 1080px) {

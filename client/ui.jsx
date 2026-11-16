@@ -90,6 +90,42 @@ export function Dialog({ title, children, footer, onClose, wide }) {
   )
 }
 
+/**
+ * 错误边界：任何一层渲染抛错都只替换掉出问题的那块，
+ * 而不是让整个面板变黑（DSH 主区没有兜底，插件必须自己兜）。
+ */
+export class Boundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[春风画布] 渲染出错', error, info)
+  }
+
+  render() {
+    const { error } = this.state
+    if (!error) return this.props.children
+    const message = String((error && error.message) || error)
+    return (
+      <div className="cf-crash" role="alert">
+        <span className="cf-crash-icon"><Icon name="refresh" size={22} /></span>
+        <p className="cf-crash-title">这一块出错了</p>
+        <p className="cf-crash-detail">{message}</p>
+        <div className="cf-crash-actions">
+          <Btn variant="primary" size="sm" onClick={() => this.setState({ error: null })}>重试</Btn>
+          <Btn size="sm" onClick={() => { try { localStorage.clear() } catch {} location.reload() }}>重置本地数据</Btn>
+        </div>
+      </div>
+    )
+  }
+}
+
 export function Toast({ text, kind }) {
   return <p className={`cf-toast${kind === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite">{text}</p>
 }

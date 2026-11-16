@@ -165,8 +165,17 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
     }
   }, [one?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const setNodes = (next) => onChange({ nodes: next, updatedAt: Date.now() })
-  const setEdges = (next) => onChange({ edges: next, updatedAt: Date.now() })
+  // 写入前的基准永远取最新一版画布：定时器等异步回调里也能拿到正确的前值，
+  // 同时支持「传数组」和「传函数」两种写法（后者之前会把函数直接写进 nodes）。
+  const latest = React.useRef(canvas)
+  latest.current = canvas
+  const write = (key, next) => {
+    const base = latest.current[key] || []
+    const value = typeof next === 'function' ? next(base) : next
+    onChange({ [key]: value, updatedAt: Date.now() })
+  }
+  const setNodes = (next) => write('nodes', next)
+  const setEdges = (next) => write('edges', next)
 
   const updateNode = (id, patch) => setNodes(nodes.map(n => (n.id === id ? { ...n, ...patch } : n)))
 

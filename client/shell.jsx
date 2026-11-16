@@ -1,7 +1,7 @@
 // 春风画布 · 外壳：顶栏导航 + 页面路由 + 状态
 import React from 'react'
 import css from './css.js'
-import { Icon, IconBtn, Toast } from './ui.jsx'
+import { Boundary, Icon, IconBtn, Toast } from './ui.jsx'
 import { VIEWS, initialState, newCanvas, newId, seedCanvas, currentView, navigate, openCanvasIn, closeCanvasIn } from './store.js'
 import { CanvasListPage, CanvasEditor } from './pages/canvas.jsx'
 import { StudioPage } from './pages/studio.jsx'
@@ -158,6 +158,7 @@ export function App() {
         </div>
       </header>
 
+      <Boundary key={view}>
       {view === 'editor' && openCanvas ? (
         <CanvasEditor
           canvas={openCanvas}
@@ -227,6 +228,8 @@ export function App() {
           say={say}
         />
       ) : null}
+
+      </Boundary>
 
       {toast ? <Toast text={toast.text} kind={toast.kind} /> : null}
     </div>
