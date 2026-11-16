@@ -1,0 +1,4 @@
+# dsh-chunfeng-image bundle patch：同一个包提供 host 半片与浏览器半片
+- insert:
+    - id: chunfeng-image
+      name: 'dsh-chunfeng-image'
