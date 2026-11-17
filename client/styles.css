@@ -2,6 +2,10 @@
  * imagery: the work itself, node pictures and generated tiles on the workspace ground · signature: the canvas is the page, one composer at its foot
  * axes: mid/grotesk-sans/neutral · posture: full-palette · contrast: pass · fold: pass · v2.0.0 */
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · weakest: V, the palette is the host's so character had to come from density and rhythm; kept every surface one step above the ground and let the pictures carry colour */
+/* Hallmark · waive 40 · the composer textarea is a borderless inner core inside a bordered card,
+ * matching DeepSeek Harness's own composer (client-ui-conversation InputBar.module.css uses a
+ * contenteditable core with no field box). Drawing an inner ring would put a line back through the
+ * middle of the card, which the owner explicitly asked to remove. The card itself carries the edge. */
 /* Hallmark · waive 39b · the prompt and asset cards are content containers, not controls; only real controls are 30 to 40px · their height is their text's */
 /* 春风画布 · 样式
    全部作用域在 .cf-app 下，不污染宿主。
@@ -521,12 +525,11 @@
   transform: translateX(-50%);
   width: min(532px, calc(100% - var(--cf-sp-6)));
   display: grid;
-  gap: var(--cf-sp-2);
   gap: 9px;
-  padding: 6px 6px 4px;
+  padding: 10px 8px 6px;
   border-radius: var(--cf-r-panel);
   background: var(--cf-input-surface);
-  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line), 0 16px 40px -20px oklch(0% 0 0 / 0.6);
+  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong), 0 16px 40px -20px oklch(0% 0 0 / 0.6);
 }
 .cf-composer:focus-within { box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong), 0 16px 40px -20px oklch(0% 0 0 / 0.6); }
 
@@ -540,10 +543,7 @@
   color: var(--cf-fg);
   font-size: var(--cf-fs-13);
   line-height: 1.55;
-  padding: 8px var(--cf-sp-3);
-  border-radius: var(--cf-r-sm);
-  background: var(--cf-bg);
-  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-muted);
+  padding: 2px var(--cf-sp-2);
 }
 .cf-composer-input::placeholder { color: var(--cf-caption); }
 .cf-composer-input:focus-visible { outline: none; }
@@ -657,6 +657,34 @@
   color: var(--cf-fg);
   background: var(--cf-panel-3);
 }
+
+/* 输入区里的参考图缩略图条 */
+.cf-composer-refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 var(--cf-sp-2); }
+.cf-ref-thumb {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--cf-r-sm);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong);
+  background: var(--cf-panel-2);
+}
+.cf-ref-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cf-ref-x {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--cf-r-pill);
+  background: oklch(0% 0 0 / 0.6);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+.cf-ref-x:hover { background: oklch(0% 0 0 / 0.85); }
 
 /* 悬浮：缩放、缩略图 */
 .cf-zoom {
@@ -969,7 +997,7 @@
   position: fixed;
   z-index: var(--cf-z-toast);
   left: 50%;
-  bottom: 40px;
+  top: calc(var(--cf-nav-h) + 14px);
   translate: -50% 0;
   padding: 8px var(--cf-sp-4);
   border-radius: var(--cf-r-pill);

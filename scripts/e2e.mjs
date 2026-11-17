@@ -451,6 +451,56 @@ await check('点分组内部空白可选中，且选中可见', async () => {
   await page.close()
 })
 
+
+// ---------- 输入条：粘贴图片 / 输入法守卫（2026-11-17） ----------
+
+const PASTE_JS = `(async () => {
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#3a7afe'; ctx.fillRect(0, 0, 64, 64);
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const dt = new DataTransfer();
+  dt.items.add(new File([blob], 'pasted.png', { type: 'image/png' }));
+  document.querySelector('.cf-composer-input').dispatchEvent(
+    new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+})()`
+
+await check('粘贴图片进入参考区并可移除', async () => {
+  const { page, errors } = await openPage('/editor.html?seed=demo')
+  assert((await page.$$('.cf-ref-thumb')).length === 0, '初始不该有缩略图')
+  await page.evaluate(PASTE_JS)
+  await wait(page, 400)
+  const thumbs = await page.$$('.cf-ref-thumb')
+  assert(thumbs.length === 1, `粘贴后应有 1 张缩略图，实际 ${thumbs.length}`)
+  const blobImg = await page.$$eval('.cf-ref-thumb img', els => els.filter(i => i.src.startsWith('blob:')).length)
+  assert(blobImg === 1, '缩略图没有用 blob 地址')
+  const badge = await page.evaluate(() => document.querySelector('.cf-bar-badge')?.textContent ?? '')
+  assert(badge.trim() === '1', `参考角标应为 1，实际「${badge}」`)
+  await page.evaluate(() => document.querySelector('.cf-ref-x').click())
+  await wait(page, 250)
+  assert((await page.$$('.cf-ref-thumb')).length === 0, '移除后仍有缩略图')
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+await check('输入法选词回车不会误发送', async () => {
+  const { page, errors } = await openPage('/editor.html?seed=demo')
+  const before = await canvasOf(page)
+  await page.evaluate(() => {
+    const ta = document.querySelector('.cf-composer-input')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(ta, '测试输入法组词')
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    ta.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    ta.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  await wait(page, 900)
+  const after = await canvasOf(page)
+  assert(after.nodes.length === before.nodes.length, `组词后的回车误触发了生成（${before.nodes.length}→${after.nodes.length}）`)
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
 await browser.close()
 server.close()
 

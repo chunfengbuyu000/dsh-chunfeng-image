@@ -114,6 +114,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const [modelKey, setModelKey] = React.useState(defaults?.modelKey || '')
   const [menu, setMenu] = React.useState(typeof window !== 'undefined' ? (window.__CF_DEV_MENU || null) : null)
   const [refs, setRefs] = React.useState([])
+  const imeAt = React.useRef(0)
   const [cw, setCw] = React.useState(1024)
   const [ch, setCh] = React.useState(1024)
   const [camera, setCamera] = React.useState(null)
@@ -143,15 +144,46 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
       .filter(n => n && n.type !== 'group' && n.type !== 'config')
   }, [one, edges, nodes])
 
-  const uploadRef = () => {
-    fileRef.current?.click()
+  const addRefFiles = (files) => {
+    const added = files.map((f, i) => ({
+      id: `${Date.now()}_${i}_${f.name || 'paste'}`,
+      name: f.name || '粘贴的图片',
+      url: URL.createObjectURL(f),
+      file: f,
+    }))
+    if (!added.length) return
+    setRefs(prev => [...prev, ...added])
+    say?.(`已加入 ${added.length} 张参考图`)
   }
+  const removeRef = (id) => setRefs(prev => {
+    const target = prev.find(r => r.id === id)
+    if (target?.url) URL.revokeObjectURL(target.url)
+    return prev.filter(r => r.id !== id)
+  })
+
+  const uploadRef = () => fileRef.current?.click()
   const onFiles = (e) => {
-    const files = [...(e.target.files || [])]
-    if (!files.length) return
-    setRefs(prev => [...prev, ...files.map(f => ({ id: f.name + f.size, name: f.name, url: URL.createObjectURL(f) }))])
-    say?.(`已加入 ${files.length} 张参考图`)
+    addRefFiles([...(e.target.files || [])])
     e.target.value = ''
+  }
+
+  // 粘贴图片：截图、复制的图、从浏览器拖来的图都走这里
+  const onPaste = (e) => {
+    const dt = e.clipboardData
+    if (!dt) return
+    const files = []
+    for (const item of Array.from(dt.items || [])) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile()
+        if (f) files.push(f)
+      }
+    }
+    if (!files.length) {
+      for (const f of Array.from(dt.files || [])) if (f.type.startsWith('image/')) files.push(f)
+    }
+    if (!files.length) return
+    e.preventDefault()
+    addRefFiles(files)
   }
 
   const imageModels = modelsWithCap(channels, 'image')
@@ -355,14 +387,33 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
         />
 
         <div className="cf-composer">
+          {refs.length ? (
+            <div className="cf-composer-refs">
+              {refs.map(r => (
+                <span key={r.id} className="cf-ref-thumb">
+                  <img src={r.url} alt={r.name} />
+                  <button type="button" className="cf-ref-x" onClick={() => removeRef(r.id)} aria-label={`移除 ${r.name}`}>×</button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           <textarea
             className="cf-composer-input"
             value={prompt}
             rows={3}
             placeholder={one?.type === 'image' ? '描述你想把这张图改成什么' : '描述画面主体、风格、构图、光线和用途'}
             onChange={(e) => setPrompt(e.target.value)}
+            onPaste={onPaste}
+            onCompositionStart={() => { imeAt.current = Date.now() }}
+            onCompositionEnd={() => { imeAt.current = Date.now() }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); generate() }
+              if (e.key !== 'Enter') return
+              if (e.nativeEvent.isComposing) return            // 正在组词
+              if (Date.now() - imeAt.current < 500) return      // 选词确认伴生的 Enter
+              if (e.shiftKey) return                            // Shift+Enter 换行
+              e.preventDefault()
+              imeAt.current = 0
+              generate()
             }}
           />
 
