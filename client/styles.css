@@ -91,14 +91,14 @@
   display: inline-flex;
   align-items: center;
   gap: var(--cf-sp-2);
-  height: 44px;
-  padding-inline: var(--cf-sp-3);
+  height: 36px;
+  padding-inline: var(--cf-sp-2);
   border-radius: var(--cf-r-md);
   background: var(--cf-glass);
   backdrop-filter: blur(24px) saturate(160%);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line), 0 12px 32px -22px oklch(0% 0 0 / 0.8);
 }
-.cf-island--nav { padding-inline: var(--cf-sp-3) var(--cf-sp-2); gap: var(--cf-sp-3); }
+.cf-island--nav { padding-inline: 2px; }
 .cf-island--btn { gap: 7px; font-size: var(--cf-fs-13); color: var(--cf-fg-2); max-width: 240px; }
 .cf-island--btn:hover { color: var(--cf-fg); }
 .cf-island--btn.is-on { color: var(--cf-fg); background: var(--cf-active); }
@@ -132,8 +132,8 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 44px;
-  padding-inline: var(--cf-sp-3);
+  height: 36px;
+  padding-inline: var(--cf-sp-2);
   border-radius: var(--cf-r-md);
   font-size: var(--cf-fs-13);
   color: var(--cf-fg-2);
@@ -147,7 +147,7 @@
 .cf-glass-btn:hover { background: var(--cf-hover); color: var(--cf-fg); }
 .cf-glass-btn.is-on { background: var(--cf-active); color: var(--cf-fg); }
 .cf-glass-btn span { overflow: hidden; text-overflow: ellipsis; }
-.cf-glass-btn--icon { width: 44px; padding-inline: 0; justify-content: center; }
+.cf-glass-btn--icon { width: 36px; padding-inline: 0; justify-content: center; }
 
 .cf-brand {
   display: flex;
@@ -277,6 +277,7 @@
 
 .cf-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--cf-r-sm); background: var(--cf-panel-2); }
 .cf-seg button {
+  white-space: nowrap;
   height: 32px;
   padding-inline: var(--cf-sp-3);
   border-radius: 6px;
@@ -290,7 +291,7 @@
 /* ---------- 页面骨架 ---------- */
 
 .cf-page { height: 100%; overflow-y: auto; overflow-x: clip; }
-.cf-page-inner { max-width: 1180px; margin-inline: auto; padding: calc(var(--cf-sp-3) + 44px + var(--cf-sp-4)) var(--cf-sp-5) var(--cf-sp-7); }
+.cf-page-inner { max-width: 1180px; margin-inline: auto; padding: calc(var(--cf-sp-3) + 36px + var(--cf-sp-4)) var(--cf-sp-5) var(--cf-sp-7); }
 
 .cf-page-head { display: flex; align-items: flex-start; gap: var(--cf-sp-4); margin-bottom: var(--cf-sp-5); }
 .cf-page-head > div:first-child { min-width: 0; }
@@ -594,7 +595,8 @@
   display: flex;
   align-items: center;
   gap: var(--cf-sp-2);
-  padding: 4px;
+  height: 36px;
+  padding: 2px;
   border-radius: var(--cf-r-md);
   background: var(--cf-glass);
   backdrop-filter: blur(20px) saturate(150%);
@@ -603,7 +605,7 @@
 .cf-canvas-bar-name {
   max-width: 22ch;
   padding-inline: 8px;
-  font-size: var(--cf-fs-13);
+  font-size: var(--cf-fs-12);
   color: var(--cf-fg-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -787,18 +789,21 @@
 .cf-zoom {
   position: absolute;
   z-index: var(--cf-z-float);
+  /* 和缩略图贴在一起：右对齐、正好落在它上方 */
   right: var(--cf-sp-3);
-  top: calc(var(--cf-sp-3) + 44px + var(--cf-sp-2));
+  bottom: calc(var(--cf-sp-3) + var(--cf-mini-h) + 8px);
+  top: auto;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: 4px;
+  height: 36px;
+  padding: 2px 4px;
   border-radius: var(--cf-r-pill);
   background: var(--cf-panel);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong);
 }
-.cf-zoom-num { min-width: 4ch; text-align: end; font-size: var(--cf-fs-11); color: var(--cf-fg-2); font-variant-numeric: tabular-nums; }
-.cf-zoom-range { width: 88px; height: 24px; appearance: none; background: transparent; cursor: pointer; }
+.cf-zoom-num { min-width: 3.6ch; text-align: end; font-size: var(--cf-fs-11); color: var(--cf-fg-2); font-variant-numeric: tabular-nums; }
+.cf-zoom-range { width: 68px; height: 20px; appearance: none; background: transparent; cursor: pointer; }
 .cf-zoom-range::-webkit-slider-runnable-track { height: 2px; background: var(--cf-line-strong); border-radius: 2px; }
 .cf-zoom-range::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: var(--cf-r-pill); background: var(--cf-fg); }
 .cf-zoom-range::-moz-range-track { height: 2px; background: var(--cf-line-strong); }
@@ -807,8 +812,8 @@
 .cf-minimap {
   position: absolute;
   z-index: var(--cf-z-float);
-  right: var(--cf-sp-4);
-  bottom: var(--cf-sp-4);
+  right: var(--cf-sp-3);
+  bottom: var(--cf-sp-3);
   border-radius: var(--cf-r-md);
   background: var(--cf-panel);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong);
@@ -993,7 +998,7 @@
 .cf-dock {
   position: absolute;
   z-index: var(--cf-z-float);
-  top: calc(var(--cf-sp-3) + 44px + var(--cf-sp-3));
+  top: calc(var(--cf-sp-3) + 36px + var(--cf-sp-3));
   right: 0;
   bottom: 0;
   width: min(380px, 92%);
@@ -1196,7 +1201,7 @@
 }
 
 @media (max-width: 860px) {
-  .cf-page-inner { padding: calc(var(--cf-sp-3) + 44px + var(--cf-sp-3)) 20px var(--cf-sp-6); }
+  .cf-page-inner { padding: calc(var(--cf-sp-3) + 36px + var(--cf-sp-3)) 20px var(--cf-sp-6); }
   .cf-nav { height: auto; padding: var(--cf-sp-2) 20px; flex-wrap: wrap; gap: var(--cf-sp-1); }
   .cf-nav-item.is-on::after { bottom: -6px; }
   .cf-nav-version { display: none; }
@@ -1204,6 +1209,7 @@
   .cf-filters { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; gap: var(--cf-sp-4); }
   .cf-studio { grid-template-columns: minmax(0, 1fr); }
   .cf-rail { left: var(--cf-sp-2); }
+  .cf-canvas-bar-name { display: none; }
   .cf-editor-hint { display: none; }
   .cf-composer { width: calc(100% - var(--cf-sp-4)); bottom: var(--cf-sp-2); }
   .cf-zoom { right: var(--cf-sp-2); top: var(--cf-sp-2); }
