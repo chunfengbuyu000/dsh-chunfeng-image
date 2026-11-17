@@ -205,25 +205,27 @@ export function App() {
       <div className="cf-ambient" aria-hidden="true"><i /><i /><i /></div>
 
       <header className="cf-nav">
-        <span className="cf-brand">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 3.5L21 19H3z" />
-            <path d="M12 9.5v5.5" strokeLinecap="round" />
-          </svg>
-          春风画布
-        </span>
+        <div className="cf-island cf-island--nav">
+          <span className="cf-brand">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3.5L21 19H3z" />
+              <path d="M12 9.5v5.5" strokeLinecap="round" />
+            </svg>
+            春风画布
+          </span>
 
-        <nav className="cf-nav-glass" aria-label="主导航">
-          {NAV.map(item => {
-            const on = item.id === 'canvas' ? (view === 'canvas' || view === 'editor') : view === item.id
-            return (
-              <button key={item.id} type="button" className={on ? 'is-on' : ''}
-                onClick={() => go(item.id)} aria-current={on ? 'page' : undefined}>
-                {item.label}
-              </button>
-            )
-          })}
-        </nav>
+          <nav className="cf-nav-glass" aria-label="主导航">
+            {NAV.map(item => {
+              const on = item.id === 'canvas' ? (view === 'canvas' || view === 'editor') : view === item.id
+              return (
+                <button key={item.id} type="button" className={on ? 'is-on' : ''}
+                  onClick={() => go(item.id)} aria-current={on ? 'page' : undefined}>
+                  {item.label}
+                </button>
+              )
+            })}
+          </nav>
+        </div>
 
         <div className="cf-nav-right">
           <button type="button" className="cf-glass-btn" onClick={() => setModelPick(true)}
