@@ -83,15 +83,19 @@ console.log('端到端')
 // 1. 顶栏每个导航都能切换（曾经的「点了没反应」）
 await check('顶栏四个页都能切过去', async () => {
   const { page, errors } = await openPage('/canvas.html')
-  for (const label of ['生图工作台', '提示词库', '我的资产', '配置']) {
+  for (const label of ['生图', '提示词', '资产']) {
     await page.evaluate((t) => {
-      const btn = [...document.querySelectorAll('.cf-nav-item')].find(b => b.textContent.includes(t))
+      const btn = [...document.querySelectorAll('.cf-nav-glass button')].find(b => b.textContent.includes(t))
       btn.click()
     }, label)
     await new Promise(r => setTimeout(r, 150))
-    const active = await page.$eval('.cf-nav-item.is-on', el => el.textContent.trim())
+    const active = await page.$eval('.cf-nav-glass button.is-on', el => el.textContent.trim())
     assert(active.includes(label), `点「${label}」后高亮的是「${active}」`)
   }
+  // 配置走右侧齿轮
+  await page.evaluate(() => [...document.querySelectorAll('.cf-glass-btn')].find(b => b.getAttribute('aria-label') === '配置').click())
+  await new Promise(r => setTimeout(r, 200))
+  assert(await page.evaluate(() => Boolean(document.querySelector('.cf-tabs'))), '齿轮没有进入配置页')
   assert(!errors.length, '页面报错：' + errors.join(' | '))
   await page.close()
 })
@@ -498,6 +502,92 @@ await check('输入法选词回车不会误发送', async () => {
   const after = await canvasOf(page)
   assert(after.nodes.length === before.nodes.length, `组词后的回车误触发了生成（${before.nodes.length}→${after.nodes.length}）`)
   assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+
+// ---------- 模型助手与助手栏（2026-11-17） ----------
+
+await check('模型选择弹框列出供应模型并可选中', async () => {
+  const { page, errors } = await openPage('/editor.html?seed=demo')
+  await page.evaluate(() => [...document.querySelectorAll('.cf-glass-btn')].find(b => b.querySelector('.cf-sparkle') || b.textContent.includes('模型'))?.click()
+    || [...document.querySelectorAll('.cf-glass-btn')][0].click())
+  await wait(page, 400)
+  assert(await page.$('.cf-dialog'), '模型弹框没打开')
+  const items = await page.$$eval('.cf-dialog .cf-menu-item', els => els.map(e => e.textContent.trim()))
+  assert(items.length >= 2, `弹框里模型太少：${items.length}`)
+  await page.evaluate(() => {
+    const btns = [...document.querySelectorAll('.cf-dialog .cf-menu-item')]
+    btns[btns.length - 1].click()
+  })
+  await wait(page, 300)
+  const pill = await page.$eval('.cf-glass-btn', el => el.textContent.trim())
+  assert(pill.length > 0, '选完模型后顶栏按钮没更新')
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+await check('开助手：画布输入条隐藏、草稿迁移过去；关掉后草稿回来', async () => {
+  const { page, errors } = await openPage('/editor.html')
+  await page.click('.cf-composer-input')
+  await page.keyboard.type('这句话要带进助手')
+  await wait(page, 200)
+  await page.evaluate(() => [...document.querySelectorAll('.cf-glass-btn')].find(b => b.textContent.includes('助手')).click())
+  await wait(page, 400)
+  assert(!(await page.$('.cf-composer')), '助手打开后画布输入条应该隐藏')
+  const dockValue = await page.$eval('.cf-dock-input', el => el.value)
+  assert(dockValue === '这句话要带进助手', `草稿没迁移过去：「${dockValue}」`)
+  await page.evaluate(() => document.querySelector('.cf-dock-head .cf-icon-btn').click())
+  await wait(page, 300)
+  const back = await page.$eval('.cf-composer-input', el => el.value)
+  assert(back === '这句话要带进助手', `关掉助手后草稿丢了：「${back}」`)
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+await check('助手回复可以插入画布成为文本节点', async () => {
+  const { page, errors } = await openPage('/editor.html')
+  const before = await canvasOf(page)
+  await page.evaluate(() => [...document.querySelectorAll('.cf-glass-btn')].find(b => b.textContent.includes('助手')).click())
+  await wait(page, 350)
+  await page.click('.cf-dock-input')
+  await page.keyboard.type('写一句短诗')
+  await page.evaluate(() => document.querySelector('.cf-dock-bar .cf-send').click())
+  await wait(page, 3000)
+  assert((await page.$$('.cf-msg')).length >= 2, '助手没有回复')
+  await page.evaluate(() => document.querySelector('.cf-msg-actions button').click())
+  await wait(page, 400)
+  const after = await canvasOf(page)
+  assert(after.nodes.length === before.nodes.length + 1, `插入画布没生效：${before.nodes.length}→${after.nodes.length}`)
+  assert(after.nodes.some(n => n.type === 'text' && n.text && n.text.length > 0), '插入的文本节点没有内容')
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+await check('文本节点可以流式生成文字', async () => {
+  const { page, errors } = await openPage('/editor.html?seed=demo')
+  const box = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.cf-node')].find(n => n.querySelector('.cf-node-type')?.textContent === '文本')
+    const r = el.getBoundingClientRect()
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+  })
+  await page.mouse.click(box.x, box.y)
+  await wait(page, 250)
+  const id = await page.$eval('.cf-node.is-selected', el => el.dataset.id)
+  await page.evaluate(() => {
+    const ta = document.querySelector('.cf-composer-input')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(ta, '写一句关于雨夜的短句')
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await wait(page, 150)
+  await page.click('.cf-send')
+  await wait(page, 3500)
+  const cv = await canvasOf(page)
+  const node = cv.nodes.find(n => n.id === id)
+  assert(node.text && node.text.length > 0, '文本节点没有生成内容')
+  assert(node.status === 'done', `状态应为 done，实际 ${node.status}`)
+  assert(!errors.includes('pageerror'), '报错：' + errors.join(' | '))
   await page.close()
 })
 

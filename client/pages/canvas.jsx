@@ -3,6 +3,7 @@ import React from 'react'
 import { Canvas, useCamera } from '../canvas.jsx'
 import { Empty, Icon, IconBtn, Btn, Dialog } from '../ui.jsx'
 import { GRID_STYLES, NODE_TYPES, RATIOS, makeNode, newCanvas, newId, wrapInGroup, modelsWithCap, findModel } from '../store.js'
+import { streamText } from '../api.js'
 
 // ---------- 列表 ----------
 
@@ -103,12 +104,14 @@ const RAIL = [
   { id: 'group', label: '分组', icon: 'group', key: 'G' },
 ]
 
-export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say }) {
+export function CanvasEditor({ canvas, channels, defaults, assistantModel, draft, onDraftChange, showComposer = true, onChange, onBack, say }) {
   const camApi = useCamera()
   const { cam, moveTo } = camApi
   const [selection, setSelection] = React.useState([])
   const [tool, setTool] = React.useState('select')
-  const [prompt, setPrompt] = React.useState(typeof window !== 'undefined' ? (window.__CF_DEV_PROMPT || '') : '')
+  // 草稿由外壳持有：助手与画布输入条共用同一份内容
+  const prompt = draft
+  const setPrompt = onDraftChange
   const [ratio, setRatio] = React.useState(defaults?.ratio || '1:1')
   const [count, setCount] = React.useState(defaults?.count || 1)
   const [modelKey, setModelKey] = React.useState(defaults?.modelKey || '')
@@ -118,6 +121,8 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const [cw, setCw] = React.useState(1024)
   const [ch, setCh] = React.useState(1024)
   const [camera, setCamera] = React.useState(null)
+  const [textBusy, setTextBusy] = React.useState(false)
+  const textStop = React.useRef(null)
   const menuRef = React.useRef(null)
   const fileRef = React.useRef(null)
 
@@ -227,6 +232,36 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
   const generate = () => {
     const text = prompt.trim()
     if (!text) return
+
+    // 文本节点：把这句话交给模型，逐字写回节点
+    if (one && one.type === 'text') {
+      const id = one.id
+      const controller = new AbortController()
+      textStop.current = controller
+      setTextBusy(true)
+      let last = 0
+      let acc = ''
+      let closed = false
+      const write = (updater) => {
+        if (closed) return
+        mutate(c => ({ nodes: c.nodes.map(n => (n.id === id ? updater(n) : n)) }))
+      }
+      write(n => ({ ...n, text: '', status: 'running' }))
+      streamText({
+        model: assistantModel || null,
+        messages: [{ role: 'user', text }],
+        signal: controller.signal,
+        onDelta: (_d, all) => {
+          acc = all
+          const now = Date.now()
+          if (now - last > 80) { last = now; write(n => ({ ...n, text: all })) }
+        },
+      })
+        .then(() => write(n => ({ ...n, text: acc, status: 'done' })))
+        .catch(err => write(n => ({ ...n, text: acc || `生成失败：${err.message}`, status: 'failed' })))
+        .finally(() => { setTextBusy(false); textStop.current = null; setPrompt('') })
+      return
+    }
 
     const target = one && one.type === 'image' ? one : null
     if (target) {
@@ -366,6 +401,15 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
       </nav>
 
       <div className="cf-editor-main">
+        <div className="cf-canvas-bar">
+          <span className="cf-canvas-bar-name" title={canvas.name || '未命名画布'}>{canvas.name || '未命名画布'}</span>
+          <div className="cf-seg" role="group" aria-label="网格样式">
+            {GRID_STYLES.map(g => (
+              <button key={g.id} type="button" className={(canvas.grid || 'dots') === g.id ? 'is-on' : ''}
+                onClick={() => onChange({ grid: g.id })}>{g.label}</button>
+            ))}
+          </div>
+        </div>
         <Canvas
           nodes={nodes}
           edges={edges}
@@ -386,6 +430,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
           actions={actions}
         />
 
+        {showComposer ? (
         <div className="cf-composer">
           {refs.length ? (
             <div className="cf-composer-refs">
@@ -401,7 +446,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
             className="cf-composer-input"
             value={prompt}
             rows={3}
-            placeholder={one?.type === 'image' ? '描述你想把这张图改成什么' : '描述画面主体、风格、构图、光线和用途'}
+            placeholder={one?.type === 'image' ? '描述你想把这张图改成什么' : one?.type === 'text' ? '描述要生成的文字内容' : '描述画面主体、风格、构图、光线和用途'}
             onChange={(e) => setPrompt(e.target.value)}
             onPaste={onPaste}
             onCompositionStart={() => { imeAt.current = Date.now() }}
@@ -539,13 +584,21 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
               </span>
             ) : null}
 
-              <button type="button" className="cf-send" onClick={generate} disabled={!prompt.trim()}
-                aria-label="发送消息" data-tip="发送消息">
-                <Icon name="arrowUp" size={17} />
-              </button>
+              {textBusy ? (
+                <button type="button" className="cf-send" aria-label="停止生成" data-tip="停止生成"
+                  onClick={() => { textStop.current?.abort(); setTextBusy(false) }}>
+                  <Icon name="stop" size={14} />
+                </button>
+              ) : (
+                <button type="button" className="cf-send" onClick={generate} disabled={!prompt.trim()}
+                  aria-label="发送消息" data-tip="发送消息">
+                  <Icon name="arrowUp" size={17} />
+                </button>
+              )}
             </div>
           </div>
         </div>
+        ) : null}
       </div>
     </div>
   )

@@ -26,9 +26,9 @@
   grid-template-rows: auto minmax(0, 1fr);
   overflow: clip;
 }
-/* 内容排在环境光之上。toast 要排除掉：
-   它必须是 fixed 且不吃点击，否则会被这条规则改成 grid 子项、撑成全宽条盖住输入条。 */
-.cf-app > :not(.cf-ambient):not(.cf-toast) { position: relative; z-index: 1; }
+/* 内容排在环境光之上。只点名需要的那几块 —— 用过 :not() 排除法时漏掉了浮层，
+   结果 toast 被撑成全宽条、助手栏被塞进 grid 流里。 */
+.cf-nav, .cf-page, .cf-editor { position: relative; z-index: 1; }
 
 /* 环境光：三团极慢漂移的柔光，给纯令牌底加一点体积和色相变化。
    和「春风工作台」同一配方：56vmax、blur 70px、42s。 */
@@ -78,7 +78,7 @@
 .cf-nav {
   display: flex;
   align-items: center;
-  gap: var(--cf-sp-2);
+  gap: var(--cf-sp-3);
   height: var(--cf-nav-h);
   padding-inline: var(--cf-sp-4);
   border-bottom: var(--cf-hair) solid var(--cf-line);
@@ -86,6 +86,49 @@
   backdrop-filter: blur(24px) saturate(160%);
   z-index: var(--cf-z-nav);
 }
+
+/* 分段导航胶囊：外圈一层玻璃，当前项实心 */
+.cf-nav-glass {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--cf-r-md);
+  background: var(--cf-glass-soft);
+  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line);
+}
+.cf-nav-glass button {
+  height: 32px;
+  padding-inline: 13px;
+  border-radius: var(--cf-r-sm);
+  font-size: var(--cf-fs-13);
+  color: var(--cf-muted);
+  white-space: nowrap;
+  transition: background-color var(--cf-dur) var(--cf-ease), color var(--cf-dur) var(--cf-ease);
+}
+.cf-nav-glass button:hover { background: var(--cf-hover); color: var(--cf-fg); }
+.cf-nav-glass button.is-on { background: var(--cf-primary); color: var(--cf-primary-fg); }
+
+/* 顶栏右侧玻璃按钮 */
+.cf-glass-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding-inline: 12px;
+  border-radius: var(--cf-r-sm);
+  font-size: var(--cf-fs-13);
+  color: var(--cf-fg-2);
+  background: var(--cf-glass-soft);
+  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line);
+  white-space: nowrap;
+  max-width: 240px;
+  transition: background-color var(--cf-dur) var(--cf-ease), color var(--cf-dur) var(--cf-ease);
+}
+.cf-glass-btn:hover { background: var(--cf-hover); color: var(--cf-fg); }
+.cf-glass-btn.is-on { background: var(--cf-active); color: var(--cf-fg); }
+.cf-glass-btn span { overflow: hidden; text-overflow: ellipsis; }
+.cf-glass-btn--icon { padding-inline: 9px; }
 
 .cf-brand {
   display: flex;
@@ -516,6 +559,31 @@
   cursor: nwse-resize;
 }
 
+/* 画布左上角的浮动条：画布名 + 网格切换（原在顶栏） */
+.cf-canvas-bar {
+  position: absolute;
+  z-index: var(--cf-z-float);
+  top: var(--cf-sp-4);
+  left: var(--cf-sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--cf-sp-2);
+  padding: 4px;
+  border-radius: var(--cf-r-md);
+  background: var(--cf-glass);
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line);
+}
+.cf-canvas-bar-name {
+  max-width: 22ch;
+  padding-inline: 8px;
+  font-size: var(--cf-fs-13);
+  color: var(--cf-fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* composer：画布底部的提示词输入 */
 .cf-composer {
   position: absolute;
@@ -531,7 +599,10 @@
   background: var(--cf-input-surface);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong), 0 16px 40px -20px oklch(0% 0 0 / 0.6);
 }
-.cf-composer:focus-within { box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line-strong), 0 16px 40px -20px oklch(0% 0 0 / 0.6); }
+.cf-composer:focus-within { box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-muted), 0 16px 40px -20px oklch(0% 0 0 / 0.6); }
+.cf-composer-input:focus-visible,
+.cf-dock-input:focus-visible { outline: none; }
+.cf-dock:focus-within { box-shadow: -1px 0 0 var(--cf-line-strong), -24px 0 60px -40px oklch(0% 0 0 / 0.8); }
 
 .cf-composer-input {
   width: 100%;
@@ -724,7 +795,7 @@
 
 .cf-editor-hint {
   position: absolute;
-  top: var(--cf-sp-4);
+  bottom: var(--cf-sp-4);
   left: var(--cf-sp-4);
   z-index: var(--cf-z-float);
   max-width: 46ch;
@@ -890,6 +961,66 @@
 .cf-channel-actions { display: flex; gap: var(--cf-sp-1); margin-inline-start: auto; flex: 0 0 auto; }
 
 .cf-defaults { display: grid; gap: var(--cf-sp-4); max-width: 560px; }
+
+/* ---------- 助手侧栏 ---------- */
+
+.cf-dock {
+  position: absolute;
+  z-index: var(--cf-z-float);
+  top: var(--cf-nav-h);
+  right: 0;
+  bottom: 0;
+  width: min(380px, 92%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--cf-panel);
+  box-shadow: -1px 0 0 var(--cf-line), -24px 0 60px -40px oklch(0% 0 0 / 0.8);
+  animation: cf-dock-in 180ms var(--cf-ease);
+}
+@keyframes cf-dock-in { from { transform: translateX(16px); opacity: 0.6 } to { transform: none; opacity: 1 } }
+
+.cf-dock-head {
+  display: flex;
+  align-items: center;
+  gap: var(--cf-sp-2);
+  padding: var(--cf-sp-3) var(--cf-sp-4);
+  border-bottom: var(--cf-hair) solid var(--cf-line);
+}
+.cf-dock-title { font-size: var(--cf-fs-14); font-weight: 600; }
+.cf-dock-head .cf-icon-btn { margin-inline-start: auto; }
+
+.cf-dock-body { overflow-y: auto; padding: var(--cf-sp-4); display: grid; gap: var(--cf-sp-3); align-content: start; }
+
+.cf-msg { display: grid; gap: 6px; max-width: 100%; }
+.cf-msg--user { justify-items: end; }
+.cf-msg-text {
+  padding: 9px 12px;
+  border-radius: var(--cf-r-md);
+  font-size: var(--cf-fs-13);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--cf-panel-2);
+  color: var(--cf-fg);
+}
+.cf-msg--user .cf-msg-text { background: var(--cf-active); }
+.cf-msg-actions { display: flex; gap: 4px; }
+
+.cf-dock-foot { border-top: var(--cf-hair) solid var(--cf-line); padding: var(--cf-sp-3); display: grid; gap: 6px; }
+.cf-dock-input {
+  width: 100%;
+  min-height: 64px;
+  max-height: 160px;
+  resize: none;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  color: var(--cf-fg);
+  font-size: var(--cf-fs-13);
+  line-height: 1.55;
+}
+.cf-dock-bar { display: flex; align-items: center; gap: var(--cf-sp-2); }
+.cf-dock-bar .cf-send { margin-inline-start: auto; }
 
 /* ---------- 右键菜单 ---------- */
 

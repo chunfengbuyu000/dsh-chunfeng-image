@@ -38,8 +38,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "test": "node scripts/selftest.mjs && node scripts/e2e.mjs",
-    "test:ui": "node scripts/e2e.mjs"
+    "test": "node scripts/selftest.mjs && node scripts/host-test.mjs && node scripts/e2e.mjs",
+    "test:ui": "node scripts/e2e.mjs",
+    "test:host": "node scripts/host-test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.10"

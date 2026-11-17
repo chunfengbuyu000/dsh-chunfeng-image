@@ -171,6 +171,8 @@ export function initialState() {
     assets: ASSET_SEED.map(a => ({ ...a })),
     defaults: { image: { modelKey: '', size: '1024x1024', ratio: '1:1', count: 1, quality: '自动', resolution: '自动' }, canvasCount: 1 },
     records: [],
+    assistantMessages: [],
+    assistantModel: null,
     configTab: 'channels',
     grid: 'dots',
   }
@@ -331,6 +333,13 @@ export function sanitizeState(raw) {
   out.prompts = Array.isArray(raw.prompts) ? raw.prompts.filter(x => x && typeof x === 'object') : base.prompts
   out.assets = Array.isArray(raw.assets) ? raw.assets.filter(x => x && typeof x === 'object') : base.assets
   out.records = Array.isArray(raw.records) ? raw.records.filter(x => x && typeof x === 'object') : []
+  out.assistantMessages = Array.isArray(raw.assistantMessages)
+    ? raw.assistantMessages.filter(x => x && typeof x === 'object' && typeof x.text === 'string')
+    : []
+  out.assistantModel = raw.assistantModel && typeof raw.assistantModel === 'object'
+    && typeof raw.assistantModel.provider === 'string' && typeof raw.assistantModel.model === 'string'
+    ? { provider: raw.assistantModel.provider, model: raw.assistantModel.model }
+    : null
   out.promptSources = Array.isArray(raw.promptSources) ? raw.promptSources.filter(x => x && typeof x === 'object') : []
 
   if (raw.defaults && typeof raw.defaults === 'object' && raw.defaults.image && typeof raw.defaults.image === 'object') {

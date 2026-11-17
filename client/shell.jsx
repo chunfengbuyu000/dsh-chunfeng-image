@@ -1,8 +1,12 @@
-// 春风画布 · 外壳：顶栏导航 + 页面路由 + 状态
+// 春风画布 · 外壳：顶栏导航 + 模型助手 + 右侧助手栏 + 页面路由 + 状态
 import React from 'react'
 import css from './css.js'
-import { Boundary, Icon, IconBtn, Toast } from './ui.jsx'
-import { VIEWS, initialState, newCanvas, newId, seedCanvas, sanitizeState, currentView, navigate, openCanvasIn, closeCanvasIn } from './store.js'
+import { Boundary, Dialog, Icon, IconBtn, Toast } from './ui.jsx'
+import {
+  VIEWS, initialState, newCanvas, newId, makeNode, seedCanvas, sanitizeState,
+  currentView, navigate, openCanvasIn, closeCanvasIn,
+} from './store.js'
+import { fetchModels, modelLabel, streamText } from './api.js'
 import { CanvasListPage, CanvasEditor } from './pages/canvas.jsx'
 import { StudioPage } from './pages/studio.jsx'
 import { PromptsPage } from './pages/prompts.jsx'
@@ -10,6 +14,14 @@ import { AssetsPage } from './pages/assets.jsx'
 import { ConfigPage } from './pages/config.jsx'
 
 const STORE_KEY = 'dsh-chunfeng-image:state:v2'
+
+// 顶栏四项；「配置」移到右侧齿轮
+const NAV = [
+  { id: 'canvas', label: '画布', icon: 'canvas' },
+  { id: 'studio', label: '生图', icon: 'image' },
+  { id: 'prompts', label: '提示词', icon: 'book' },
+  { id: 'assets', label: '资产', icon: 'folder' },
+]
 
 function load() {
   try {
@@ -25,18 +37,32 @@ function load() {
 export function App() {
   const [state, setState] = React.useState(() => {
     const saved = load()
-    // 读到的任何数据都先清洗一遍：字段缺失、类型不对、旧版本结构都在这里收敛
     if (saved) return sanitizeState(saved)
-    // 首次启动给一张示例画布，但停在列表页（一进来就进编辑器会让人以为导航失灵）
     const init = initialState()
     init.canvases = [{ ...newCanvas('霓虹街角'), ...seedCanvas() }]
     init.openCanvasId = null
     return init
   })
+
+  // 画布输入条与助手共用这一份草稿：谁显示谁持有，内容不丢
+  const [draft, setDraft] = React.useState(() => (typeof window !== 'undefined' && window.__CF_DEV_PROMPT ? window.__CF_DEV_PROMPT : ''))
   const [studioPrompt, setStudioPrompt] = React.useState('')
   const [returnTo, setReturnTo] = React.useState(null)
   const [toast, setToast] = React.useState(null)
+  const [dockOpen, setDockOpen] = React.useState(false)
+  const [modelPick, setModelPick] = React.useState(false)
+  const [models, setModels] = React.useState(null)
+  const [streaming, setStreaming] = React.useState(false)
   const toastTimer = React.useRef(0)
+  const streamAbort = React.useRef(null)
+
+  React.useEffect(() => {
+    let alive = true
+    fetchModels()
+      .then(m => { if (alive) setModels(m) })
+      .catch(err => { if (alive) setModels({ providers: [], error: err.message }) })
+    return () => { alive = false }
+  }, [])
 
   React.useEffect(() => {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)) } catch { /* 存不下就算了 */ }
@@ -47,21 +73,21 @@ export function App() {
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(null), 2200)
   }, [])
-  React.useEffect(() => () => clearTimeout(toastTimer.current), [])
+  React.useEffect(() => () => { clearTimeout(toastTimer.current); streamAbort.current?.abort() }, [])
 
   const patch = (p) => setState(s => ({ ...s, ...p }))
   const openCanvas = state.canvases.find(c => c.id === state.openCanvasId) || null
   const view = currentView(state)
+  const messages = state.assistantMessages || []
+  const selection = state.assistantModel || models?.default || null
+  const selectionLabel = modelLabel(models, selection) || '模型'
 
   const go = (target) => {
     setReturnTo(null)
+    setDockOpen(false)
     setState(s => navigate(s, target))
   }
 
-  // RC1：必须用函数式更新。之前用渲染闭包里的 state.canvases 重建数组，
-  // 同一 tick 内连续两次写入（先 nodes 再 edges）会互相覆盖，表现为
-  // 「删了边没删节点」「⌘D 无效」「生成后内容回退」。
-  // p 既可以是对象补丁，也可以是 (canvas) => 补丁，方便一次原子提交多个字段。
   const updateCanvas = (canvasId, p) =>
     setState(s => ({
       ...s,
@@ -73,7 +99,6 @@ export function App() {
     }))
 
   const createCanvas = () => {
-    // 新建必须是空白画布：之前把演示场景一起种进去，每张新画布都带 6 节点 4 连线
     const cv = newCanvas()
     setState(s => ({ ...s, canvases: [cv, ...s.canvases], openCanvasId: cv.id, view: 'canvas' }))
     say('已新建画布')
@@ -103,7 +128,7 @@ export function App() {
     input.click()
   }
 
-  /** 使用一条提示词：在画布里新建节点，否则回生图工作台填进去。 */
+  /** 使用一条提示词：在画布里新建节点，否则填进生图工作台。 */
   const usePrompt = (p) => {
     if (openCanvas) {
       const node = {
@@ -121,6 +146,59 @@ export function App() {
     say(`已填入「${p.title}」`)
   }
 
+  // ---------- 助手 ----------
+
+  const setAssistantModel = (sel) => { patch({ assistantModel: sel || null }); setModelPick(false) }
+
+  const sendAssistant = async () => {
+    const text = draft.trim()
+    if (!text || streaming) return
+    const user = { id: newId('m'), role: 'user', text }
+    const answer = { id: newId('m'), role: 'assistant', text: '' }
+    const history = [...messages, user]
+    patch({ assistantMessages: [...history, answer] })
+    setDraft('')
+    const controller = new AbortController()
+    streamAbort.current = controller
+    setStreaming(true)
+    const write = (updater) => setState(s => ({
+      ...s,
+      assistantMessages: (s.assistantMessages || []).map(m => (m.id === answer.id ? updater(m) : m)),
+    }))
+    try {
+      let last = 0
+      let acc = ''
+      await streamText({
+        model: state.assistantModel || null,
+        messages: history.map(m => ({ role: m.role, text: m.text })),
+        signal: controller.signal,
+        onDelta: (_d, all) => {
+          acc = all
+          const now = Date.now()
+          if (now - last > 60) { last = now; write(m => ({ ...m, text: all })) }
+        },
+      })
+      write(m => ({ ...m, text: acc }))
+    } catch (err) {
+      write(m => ({ ...m, text: `${m.text || ''}\n\n（失败：${err.message}）` }))
+    } finally {
+      setStreaming(false)
+      streamAbort.current = null
+    }
+  }
+
+  const stopAssistant = () => { streamAbort.current?.abort(); setStreaming(false) }
+
+  const insertMessageToCanvas = (msg) => {
+    const target = openCanvas
+    if (!target) { say('先打开一张画布再插入'); return }
+    const node = makeNode('text', { x: 420, y: 320 }, { text: msg.text })
+    node.x = 160 + (target.nodes.length % 6) * 28
+    node.y = 180 + (target.nodes.length % 6) * 24
+    updateCanvas(target.id, { nodes: [...target.nodes, node] })
+    say('已插入画布')
+  }
+
   return (
     <div className="cf-app">
       <style>{css}</style>
@@ -135,112 +213,276 @@ export function App() {
           春风画布
         </span>
 
-        <nav className="cf-nav-list" aria-label="主导航">
-          {VIEWS.map(v => {
-            const on = v.id === 'canvas' ? (view === 'canvas' || view === 'editor') : view === v.id
+        <nav className="cf-nav-glass" aria-label="主导航">
+          {NAV.map(item => {
+            const on = item.id === 'canvas' ? (view === 'canvas' || view === 'editor') : view === item.id
             return (
-              <button key={v.id} type="button" className={`cf-nav-item${on ? ' is-on' : ''}`}
-                onClick={() => go(v.id)} aria-current={on ? 'page' : undefined}>
-                <Icon name={v.icon} size={15} />
-                {v.label}
+              <button key={item.id} type="button" className={on ? 'is-on' : ''}
+                onClick={() => go(item.id)} aria-current={on ? 'page' : undefined}>
+                {item.label}
               </button>
             )
           })}
         </nav>
 
         <div className="cf-nav-right">
-          {openCanvas ? (
-            <>
-              <span style={{ fontSize: 12, color: 'var(--cf-muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {openCanvas.name}
-              </span>
-              <div className="cf-seg" role="group" aria-label="网格样式">
-                {[{ id: 'dots', label: '点阵' }, { id: 'lines', label: '网格' }, { id: 'blank', label: '空白' }].map(g => (
-                  <button key={g.id} type="button" className={(openCanvas.grid || 'dots') === g.id ? 'is-on' : ''}
-                    onClick={() => updateCanvas(openCanvas.id, { grid: g.id })}>{g.label}</button>
-                ))}
-              </div>
-            </>
-          ) : null}
-          <span className="cf-nav-version">v0.1.0</span>
-          <IconBtn name="keyboard" label="快捷键" onClick={() => say('V 选择 · H 移动 · T/I/A/C/G 新建节点 · ⌘D 复制 · ⌘G 包组 · ⌫ 删除')} />
+          <button type="button" className="cf-glass-btn" onClick={() => setModelPick(true)}
+            title={`助手模型：${selectionLabel}`}>
+            <Icon name="sparkle" size={14} />
+            <span>{selectionLabel}</span>
+          </button>
+          <button type="button" className="cf-glass-btn cf-glass-btn--icon" title="配置"
+            aria-label="配置" onClick={() => go('config')}>
+            <Icon name="sliders" size={15} />
+          </button>
+          <button type="button" className={`cf-glass-btn${dockOpen ? ' is-on' : ''}`}
+            aria-pressed={dockOpen} onClick={() => setDockOpen(v => !v)}>
+            <Icon name="message" size={14} />
+            助手
+          </button>
         </div>
       </header>
 
       <Boundary key={view}>
-      {view === 'editor' && openCanvas ? (
-        <CanvasEditor
-          canvas={openCanvas}
-          channels={state.channels}
-          defaults={state.defaults.image}
-          onChange={(p) => updateCanvas(openCanvas.id, p)}
-          onBack={() => setState(s => closeCanvasIn(s))}
-          say={say}
-        />
-      ) : null}
+        {view === 'editor' && openCanvas ? (
+          <CanvasEditor
+            canvas={openCanvas}
+            channels={state.channels}
+            defaults={state.defaults.image}
+            assistantModel={state.assistantModel || null}
+            draft={draft}
+            onDraftChange={setDraft}
+            showComposer={!dockOpen}
+            onChange={(p) => updateCanvas(openCanvas.id, p)}
+            onBack={() => setState(s => closeCanvasIn(s))}
+            say={say}
+          />
+        ) : null}
 
-      {view === 'canvas' ? (
-        <CanvasListPage
-          canvases={state.canvases}
-          onOpen={(id) => setState(s => openCanvasIn(s, id))}
-          onCreate={createCanvas}
-          onRename={(id, name) => updateCanvas(id, { name })}
-          onDelete={(id) => setState(s => ({ ...s, canvases: s.canvases.filter(c => c.id !== id), openCanvasId: null }))}
-          onImport={importCanvas}
-        />
-      ) : null}
+        {view === 'canvas' ? (
+          <CanvasListPage
+            canvases={state.canvases}
+            onOpen={(id) => setState(s => openCanvasIn(s, id))}
+            onCreate={createCanvas}
+            onRename={(id, name) => updateCanvas(id, { name })}
+            onDelete={(id) => setState(s => ({ ...s, canvases: s.canvases.filter(c => c.id !== id), openCanvasId: null }))}
+            onImport={importCanvas}
+          />
+        ) : null}
 
-      {view === 'studio' ? (
-        <StudioPage
-          channels={state.channels}
-          defaults={state.defaults.image}
-          records={state.records}
-          prompt={studioPrompt}
-          onPrompt={setStudioPrompt}
-          onCreateRecord={(rec) => setState(s => ({ ...s, records: [rec, ...s.records] }))}
-          onDeleteRecords={(ids) => setState(s => ({ ...s, records: s.records.filter(r => !ids.includes(r.id)) }))}
-          onLookupPrompts={() => { setReturnTo('studio'); patch({ view: 'prompts', openCanvasId: null }) }}
-          say={say}
-        />
-      ) : null}
+        {view === 'studio' ? (
+          <StudioPage
+            channels={state.channels}
+            defaults={state.defaults.image}
+            records={state.records}
+            prompt={studioPrompt}
+            onPrompt={setStudioPrompt}
+            onCreateRecord={(rec) => setState(s => ({ ...s, records: [rec, ...s.records] }))}
+            onDeleteRecords={(ids) => setState(s => ({ ...s, records: s.records.filter(r => !ids.includes(r.id)) }))}
+            onLookupPrompts={() => { setReturnTo('studio'); patch({ view: 'prompts', openCanvasId: null }) }}
+            say={say}
+          />
+        ) : null}
 
-      {view === 'prompts' ? (
-        <PromptsPage
-          prompts={state.prompts}
-          sources={state.promptSources}
-          returnTo={returnTo}
-          onUse={usePrompt}
-          onBack={returnTo ? () => { setReturnTo(null); patch({ view: returnTo }) } : null}
-        />
-      ) : null}
+        {view === 'prompts' ? (
+          <PromptsPage
+            prompts={state.prompts}
+            sources={state.promptSources}
+            returnTo={returnTo}
+            onUse={usePrompt}
+            onBack={returnTo ? () => { setReturnTo(null); patch({ view: returnTo }) } : null}
+          />
+        ) : null}
 
-      {view === 'assets' ? (
-        <AssetsPage
-          assets={state.assets}
-          onSave={(next) => patch({ assets: next })}
-          onDelete={(id) => setState(s => ({ ...s, assets: s.assets.filter(a => a.id !== id) }))}
-          onImport={() => say('资产包导入接 Host 后可用')}
-          say={say}
-        />
-      ) : null}
+        {view === 'assets' ? (
+          <AssetsPage
+            assets={state.assets}
+            onSave={(next) => patch({ assets: next })}
+            onDelete={(id) => setState(s => ({ ...s, assets: s.assets.filter(a => a.id !== id) }))}
+            onImport={() => say('资产包导入接 Host 后可用')}
+            say={say}
+          />
+        ) : null}
 
-      {view === 'config' ? (
-        <ConfigPage
-          tab={state.configTab}
-          onTab={(t) => patch({ configTab: t })}
-          channels={state.channels}
-          onChannels={(channels) => patch({ channels })}
-          defaults={state.defaults}
-          onDefaults={(defaults) => patch({ defaults })}
-          promptSources={state.promptSources}
-          onPromptSources={(promptSources) => patch({ promptSources })}
-          say={say}
-        />
-      ) : null}
-
+        {view === 'config' ? (
+          <ConfigPage
+            tab={state.configTab}
+            onTab={(t) => patch({ configTab: t })}
+            channels={state.channels}
+            onChannels={(channels) => patch({ channels })}
+            defaults={state.defaults}
+            onDefaults={(defaults) => patch({ defaults })}
+            promptSources={state.promptSources}
+            onPromptSources={(promptSources) => patch({ promptSources })}
+            say={say}
+          />
+        ) : null}
       </Boundary>
+
+      {dockOpen ? (
+        <AssistantDock
+          messages={messages}
+          draft={draft}
+          onDraftChange={setDraft}
+          streaming={streaming}
+          onSend={sendAssistant}
+          onStop={stopAssistant}
+          onClose={() => setDockOpen(false)}
+          onInsert={insertMessageToCanvas}
+          onClear={() => patch({ assistantMessages: [] })}
+          canInsert={Boolean(openCanvas)}
+          modelLabelText={selectionLabel}
+        />
+      ) : null}
+
+      {modelPick ? (
+        <ModelDialog
+          models={models}
+          selection={selection}
+          onPick={setAssistantModel}
+          onClose={() => setModelPick(false)}
+        />
+      ) : null}
 
       {toast ? <Toast text={toast.text} kind={toast.kind} /> : null}
     </div>
+  )
+}
+
+// ---------- 模型选择弹框 ----------
+
+function ModelDialog({ models, selection, onPick, onClose }) {
+  const [query, setQuery] = React.useState('')
+  const providers = models?.providers || []
+  const keyword = query.trim().toLowerCase()
+  const filtered = providers
+    .map(p => ({
+      ...p,
+      models: p.models.filter(m => !keyword
+        || (m.name || m.id).toLowerCase().includes(keyword)
+        || p.name.toLowerCase().includes(keyword)),
+    }))
+    .filter(p => p.models.length)
+
+  return (
+    <Dialog title="助手模型" wide onClose={onClose}
+      footer={<span style={{ marginInlineEnd: 'auto', fontSize: 12, color: 'var(--cf-caption)' }}>
+        {models?.error ? `读取失败：${models.error}` : `来自 DSH 当前供应的 ${providers.reduce((n, p) => n + p.models.length, 0)} 个模型`}
+      </span>}>
+      <button type="button" className={`cf-chip${!selection?.model ? ' is-on' : ''}`}
+        style={{ justifySelf: 'start' }} onClick={() => onPick(null)}>
+        跟随 DSH 默认
+      </button>
+
+      <input className="cf-input" value={query} placeholder="搜索模型或厂商"
+        onChange={e => setQuery(e.target.value)} />
+
+      {filtered.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--cf-muted)' }}>
+          {models === null ? '正在读取模型…' : keyword ? '没有匹配的模型' : 'DSH 里还没有可用的模型'}
+        </p>
+      ) : (
+        <div style={{ display: 'grid', gap: 'var(--cf-sp-3)' }}>
+          {filtered.map(p => (
+            <div key={p.id} style={{ display: 'grid', gap: 2 }}>
+              <p style={{ fontSize: 12, color: 'var(--cf-caption)', paddingInline: 4 }}>{p.name}</p>
+              {p.models.map(m => {
+                const on = selection?.provider === p.id && selection?.model === m.id
+                return (
+                  <button key={m.id} type="button" className={`cf-menu-item${on ? ' is-on' : ''}`}
+                    onClick={() => onPick({ provider: p.id, model: m.id })}>
+                    <span className="cf-menu-label">{m.name}</span>
+                    {on ? <Icon name="check" size={14} /> : null}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+// ---------- 助手侧栏 ----------
+
+function AssistantDock({ messages, draft, onDraftChange, streaming, onSend, onStop, onClose, onInsert, onClear, canInsert, modelLabelText }) {
+  const bodyRef = React.useRef(null)
+  const inputRef = React.useRef(null)
+  const imeAt = React.useRef(0)
+
+  React.useEffect(() => {
+    const el = bodyRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages])
+
+  React.useEffect(() => { inputRef.current?.focus() }, [])
+
+  return (
+    <aside className="cf-dock" aria-label="助手">
+      <header className="cf-dock-head">
+        <Icon name="message" size={15} />
+        <span className="cf-dock-title">助手</span>
+        <span style={{ fontSize: 12, color: 'var(--cf-caption)' }}>{modelLabelText}</span>
+        {messages.length ? (
+          <button type="button" className="cf-btn cf-btn--quiet cf-btn--sm" onClick={onClear}>清空</button>
+        ) : null}
+        <IconBtn name="close" label="关闭助手" onClick={onClose} />
+      </header>
+
+      <div className="cf-dock-body" ref={bodyRef}>
+        {messages.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--cf-muted)', lineHeight: 1.6 }}>
+            问点什么，或者把画布输入框里的草稿带过来继续写。
+          </p>
+        ) : messages.map(m => (
+          <div key={m.id} className={`cf-msg cf-msg--${m.role}`}>
+            <div className="cf-msg-text">{m.text || (m.role === 'assistant' && streaming ? '…' : '')}</div>
+            {m.role === 'assistant' && m.text ? (
+              <div className="cf-msg-actions">
+                <button type="button" className="cf-btn cf-btn--quiet cf-btn--sm" disabled={!canInsert}
+                  onClick={() => onInsert(m)}>插入画布</button>
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      <div className="cf-dock-foot">
+        <textarea
+          ref={inputRef}
+          className="cf-dock-input"
+          value={draft}
+          placeholder="给助手说点什么"
+          onChange={e => onDraftChange(e.target.value)}
+          onCompositionStart={() => { imeAt.current = Date.now() }}
+          onCompositionEnd={() => { imeAt.current = Date.now() }}
+          onKeyDown={e => {
+            if (e.key !== 'Enter') return
+            if (e.nativeEvent.isComposing) return
+            if (Date.now() - imeAt.current < 500) return
+            if (e.shiftKey) return
+            e.preventDefault()
+            imeAt.current = 0
+            onSend()
+          }}
+        />
+        <div className="cf-dock-bar">
+          <span style={{ fontSize: 11, color: 'var(--cf-caption)' }}>
+            {canInsert ? '回复可插入当前画布' : '打开一张画布后可插入'}
+          </span>
+          {streaming ? (
+            <button type="button" className="cf-send" onClick={onStop} aria-label="停止" data-tip="停止">
+              <Icon name="stop" size={13} />
+            </button>
+          ) : (
+            <button type="button" className="cf-send" onClick={onSend} disabled={!draft.trim()}
+              aria-label="发送" data-tip="发送">
+              <Icon name="arrowUp" size={17} />
+            </button>
+          )}
+        </div>
+      </div>
+    </aside>
   )
 }
