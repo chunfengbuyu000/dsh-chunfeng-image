@@ -255,6 +255,38 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
     setSelection(copies.map(n => n.id))
   }
 
+  // 右键菜单用到的动作
+  const ungroup = (id) => {
+    mutate(c => ({ nodes: c.nodes.filter(n => n.id !== id) }))
+    setSelection([])
+    say?.('已取消分组，节点保留')
+  }
+  const deleteGroupDeep = (id) => {
+    mutate(c => {
+      const g = c.nodes.find(n => n.id === id)
+      const drop = new Set([id, ...(g?.childIds || [])])
+      return {
+        nodes: c.nodes.filter(n => !drop.has(n.id)),
+        edges: c.edges.filter(e => !drop.has(e.from) && !drop.has(e.to)),
+      }
+    })
+    setSelection([])
+    say?.('已删除分组与内容')
+  }
+  const selectAll = () => setSelection(nodes.map(n => n.id))
+  const generateNode = (id) => {
+    mutate(c => ({ nodes: c.nodes.map(n => (n.id === id ? { ...n, status: 'running' } : n)) }))
+    setTimeout(() => {
+      mutate(c => ({ nodes: c.nodes.map(n => (n.id === id && n.status === 'running' ? { ...n, status: 'done' } : n)) }))
+    }, 900)
+    say?.('开始生成')
+  }
+
+  const actions = {
+    duplicate, wrap, removeSelection: removeSelected, removeEdge: onRemoveEdge,
+    addNode, selectAll, fit: () => camApi.fit?.(), generateNode, ungroup, deleteGroupDeep,
+  }
+
   React.useEffect(() => {
     const onKey = (e) => {
       if (/input|textarea|select/i.test(e.target.tagName)) return
@@ -319,6 +351,7 @@ export function CanvasEditor({ canvas, channels, defaults, onChange, onBack, say
           onConnect={onConnect}
           onRemoveEdge={onRemoveEdge}
           onOpenNode={(node) => { setSelection([node.id]); setPrompt(node.prompt || node.text || '') }}
+          actions={actions}
         />
 
         <div className="cf-composer">

@@ -375,6 +375,82 @@ await check('RC8 坏数据不白屏', async () => {
   await page.close()
 })
 
+
+// ---------- 右键菜单 / 分组可选中（2026-11-17） ----------
+
+const menuItems = (page) => page.$$eval('.cf-ctx-item', els => els.map(e => e.textContent.replace(/\s+/g, '')))
+
+await check('右键节点：菜单出现且删除生效', async () => {
+  const { page, errors } = await openPage('/editor.html?seed=demo')
+  const before = await canvasOf(page)
+  const p = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.cf-node')].find(n => n.querySelector('.cf-node-type')?.textContent === '图片')
+    const r = el.getBoundingClientRect()
+    return { x: r.x + r.width / 2, y: r.y + 30 }
+  })
+  await page.mouse.click(p.x, p.y, { button: 'right' })
+  await wait(page, 250)
+  assert(await page.$('.cf-ctx'), '没有出现右键菜单')
+  const items = await menuItems(page)
+  assert(items.some(t => t.includes('删除')), `菜单项缺删除：${items.join('|')}`)
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.cf-ctx-item')].find(b => b.textContent.includes('删除')).click()
+  })
+  await wait(page, 300)
+  const after = await canvasOf(page)
+  assert(after.nodes.length === before.nodes.length - 1, `删除未生效：${before.nodes.length}→${after.nodes.length}`)
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+await check('右键空白：菜单出现且新建生效', async () => {
+  const { page, errors } = await openPage('/editor.html?seed=demo')
+  const before = await canvasOf(page)
+  await page.mouse.click(360, 720, { button: 'right' })
+  await wait(page, 250)
+  assert(await page.$('.cf-ctx'), '空白处没有右键菜单')
+  const items = await menuItems(page)
+  assert(items.some(t => t.includes('新建图片')), `菜单项缺新建：${items.join('|')}`)
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.cf-ctx-item')].find(b => b.textContent.includes('新建图片')).click()
+  })
+  await wait(page, 300)
+  const after = await canvasOf(page)
+  assert(after.nodes.length === before.nodes.length + 1, `新建未生效：${before.nodes.length}→${after.nodes.length}`)
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
+await check('右键分组：有取消分组与整组删除', async () => {
+  const { page } = await openPage('/editor.html?seed=demo')
+  const p = await page.evaluate(() => {
+    const r = document.querySelector('.cf-node.is-group').getBoundingClientRect()
+    return { x: r.x + r.width - 60, y: r.y + 40 }
+  })
+  await page.mouse.click(p.x, p.y, { button: 'right' })
+  await wait(page, 250)
+  const items = await menuItems(page)
+  assert(items.some(t => t.includes('取消分组')), '缺取消分组')
+  assert(items.some(t => t.includes('删除分组与内容')), '缺整组删除')
+  await page.close()
+})
+
+await check('点分组内部空白可选中，且选中可见', async () => {
+  const { page } = await openPage('/editor.html?seed=demo')
+  const p = await page.evaluate(() => {
+    const r = document.querySelector('.cf-node.is-group').getBoundingClientRect()
+    return { x: r.x + r.width - 60, y: r.y + 40 }
+  })
+  const shadowBefore = await page.$eval('.cf-node.is-group', el => getComputedStyle(el).boxShadow)
+  await page.mouse.click(p.x, p.y)
+  await wait(page, 250)
+  const selected = await page.$('.cf-node.is-group.is-selected')
+  assert(selected, '点分组内部没有选中分组')
+  const shadowAfter = await page.$eval('.cf-node.is-group', el => getComputedStyle(el).boxShadow)
+  assert(shadowBefore !== shadowAfter, '选中后描边没有变化（看不出来选中了）')
+  await page.close()
+})
+
 await browser.close()
 server.close()
 

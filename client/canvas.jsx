@@ -2,6 +2,7 @@
 // 相机只往 world 层写一个 transform，不改 CSS 变量。
 import React from 'react'
 import { canConnect, NODE_TYPES, findModel, makeNode } from './store.js'
+import { Icon } from './ui.jsx'
 
 export const MIN_S = 0.1
 export const MAX_S = 3
@@ -148,7 +149,7 @@ function NodeBody({ node, channels }) {
 }
 
 export function Canvas({
-  nodes, edges, selection, channels, grid, minimap, tool = 'select',
+  nodes, edges, selection, channels, grid, minimap, tool = 'select', actions = {},
   onSelection, onMove, onResize, onConnect, onRemoveEdge, onOpenNode,
   camera, camApi, showHint,
 }) {
@@ -163,6 +164,7 @@ export function Canvas({
   const marquee = React.useRef(null)
   const edgeFrom = React.useRef(null)
   const [edgePreview, setEdgePreview] = React.useState(null)
+  const [ctx, setCtx] = React.useState(null)
   const [box, setBox] = React.useState(null)
   const [space, setSpace] = React.useState(false)
 
@@ -248,7 +250,29 @@ export function Canvas({
     moveTo(worldRef.current, px - wx * ns, py - wy * ns, ns, () => setZoom(Math.round(cam.current.s * 100)))
   }
 
+  const openContext = (e) => {
+    e.preventDefault()
+    const r = rect()
+    const x = Math.max(0, Math.min(e.clientX - r.left, r.width - 200))
+    const y = Math.max(0, Math.min(e.clientY - r.top, r.height - 40))
+    // 用坐标查真实命中元素：右键的 pointerdown 可能被前面的事件捕获，
+    // 导致 contextmenu 的 target 被重定向到舞台（之前就是这个坑）。
+    const hit = document.elementFromPoint(e.clientX, e.clientY) || e.target
+    const nodeEl = hit.closest?.('.cf-node')
+    if (nodeEl) {
+      const id = nodeEl.dataset.id
+      const node = nodes.find(n => n.id === id)
+      if (id && !selection.includes(id)) onSelection([id])
+      setCtx({ kind: node?.type === 'group' ? 'group' : 'node', id, x, y })
+      return
+    }
+    const edgeEl = hit.closest?.('.cf-edge')
+    if (edgeEl?.dataset.id) { setCtx({ kind: 'edge', id: edgeEl.dataset.id, x, y }); return }
+    setCtx({ kind: 'blank', id: null, x, y })
+  }
+
   const onDown = (e) => {
+    if (ctx) setCtx(null)
     // RC5：空格、中键、或选中「移动」工具时都是平移
     if (e.button === 1 || space || tool === 'pan') {
       e.preventDefault()
@@ -322,6 +346,8 @@ export function Canvas({
   }
 
   const nodeDown = (e, node) => {
+    // 非左键（右键菜单、中键）不参与拖动，也不能捕获指针
+    if (e.button !== 0) return
     // 先判断平移：要让事件冒泡到舞台，所以必须在 stopPropagation 之前返回
     if (e.button === 1 || space || tool === 'pan') return
     e.stopPropagation()
@@ -368,6 +394,7 @@ export function Canvas({
         onPointerUp={onUp}
         onPointerCancel={onUp}
         onWheel={onWheel}
+        onContextMenu={openContext}
         style={{ '--cf-grid': `${28 * zoom / 100}px` }}
       >
         <div className="cf-world" ref={worldRef}>
@@ -381,7 +408,7 @@ export function Canvas({
               const a = byId[edge.from], b = byId[edge.to]
               if (!a || !b) return null
               return (
-                <g key={edge.id} className="cf-edge">
+                <g key={edge.id} className="cf-edge" data-id={edge.id}>
                   <path d={edgePath(a, b)} className="cf-edge-line" markerEnd="url(#cf-arrow)" />
                   <path d={edgePath(a, b)} className="cf-edge-hit" onPointerDown={(e) => { e.stopPropagation(); onRemoveEdge(edge.id) }}>
                     <title>点击删除这条连线</title>
@@ -401,7 +428,7 @@ export function Canvas({
               key={node.id}
               className={`cf-node${selection.includes(node.id) ? ' is-selected' : ''}${node.status === 'running' ? ' is-running' : ''}${node.type === 'group' ? ' is-group' : ''}`}
               data-id={node.id}
-              style={{ left: node.x, top: node.y, width: node.w, height: node.h, zIndex: node.type === 'group' ? 3 : 2 }}
+              style={{ left: node.x, top: node.y, width: node.w, height: node.h, zIndex: node.type === 'group' ? 1 : 2 }}
               onPointerDown={(e) => nodeDown(e, node)}
             >
               {node.type === 'group' ? (
@@ -430,6 +457,10 @@ export function Canvas({
 
           {box && box.w > 4 ? <div className="cf-marquee" style={{ left: box.x, top: box.y, width: box.w, height: box.h }} /> : null}
         </div>
+
+        {ctx ? (
+          <ContextMenu ctx={ctx} nodes={nodes} selection={selection} actions={actions} onClose={() => setCtx(null)} />
+        ) : null}
       </div>
 
       {minimap ? (
@@ -500,5 +531,59 @@ function Minimap({ nodes, cam, size, onJump }) {
       })}
       <rect x={view.x} y={view.y} width={Math.max(6, view.w)} height={Math.max(6, view.h)} rx={2} className="cf-mini-view" />
     </svg>
+  )
+}
+
+
+function ContextMenu({ ctx, nodes, selection, actions, onClose }) {
+  const node = ctx.id ? nodes.find(n => n.id === ctx.id) : null
+  const run = (fn) => () => { onClose(); fn?.() }
+
+  const items = (() => {
+    if (ctx.kind === 'edge') {
+      return [{ icon: 'trash', label: '删除连线', run: run(() => actions.removeEdge?.(ctx.id)) }]
+    }
+    if (ctx.kind === 'group') {
+      return [
+        { icon: 'plus', label: '复制分组', run: run(() => actions.duplicate?.()) },
+        { icon: 'close', label: '取消分组（保留节点）', run: run(() => actions.ungroup?.(ctx.id)) },
+        { sep: true },
+        { icon: 'trash', label: '删除分组与内容', danger: true, run: run(() => actions.deleteGroupDeep?.(ctx.id)) },
+      ]
+    }
+    if (ctx.kind === 'node') {
+      const list = []
+      if (node?.type === 'image') list.push({ icon: 'play', label: '用当前提示词生成', run: run(() => actions.generateNode?.(ctx.id)) })
+      list.push({ icon: 'plus', label: '复制', hint: '⌘D', run: run(() => actions.duplicate?.()) })
+      list.push({ icon: 'group', label: '包成组', hint: '⌘G', disabled: selection.length < 2, run: run(() => actions.wrap?.()) })
+      list.push({ sep: true })
+      list.push({ icon: 'trash', label: '删除', hint: '⌫', danger: true, run: run(() => actions.removeSelection?.()) })
+      return list
+    }
+    return [
+      { icon: 'image', label: '新建图片节点', run: run(() => actions.addNode?.('image')) },
+      { icon: 'text', label: '新建文本节点', run: run(() => actions.addNode?.('text')) },
+      { icon: 'sliders', label: '新建配置节点', run: run(() => actions.addNode?.('config')) },
+      { icon: 'group', label: '新建分组', run: run(() => actions.addNode?.('group')) },
+      { sep: true },
+      { icon: 'check', label: '全选', hint: '⌘A', run: run(() => actions.selectAll?.()) },
+      { icon: 'target', label: '适应视图', hint: '0', run: run(() => actions.fit?.()) },
+    ]
+  })()
+
+  return (
+    <div className="cf-ctx" style={{ left: ctx.x, top: ctx.y }} role="menu"
+      onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+      <p className="cf-ctx-head">
+        {ctx.kind === 'blank' ? '画布' : ctx.kind === 'edge' ? '连线' : node?.type === 'group' ? (node.name || '分组') : `${NODE_TYPES[node?.type] || ''}节点`}
+      </p>
+      {items.map((it, i) => (it.sep ? <div key={`s${i}`} className="cf-ctx-sep" /> : (
+        <button key={i} type="button" className="cf-ctx-item" role="menuitem" disabled={it.disabled} onClick={it.run}>
+          <Icon name={it.icon} size={14} />
+          <span className="cf-ctx-item-label">{it.label}</span>
+          {it.hint ? <span className="cf-ctx-item-key">{it.hint}</span> : null}
+        </button>
+      )))}
+    </div>
   )
 }
