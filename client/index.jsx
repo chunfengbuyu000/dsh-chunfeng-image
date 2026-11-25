@@ -24,8 +24,10 @@ export function apply(ctx) {
   }, 'dsh-chunfeng-image: sidebar entry')
 }
 
+// 侧栏入口图标：单张图片（image），不是画布叠层（canvas）。
+// 画布叠层留给画布页自身的空态与品牌位，入口用图片更直白。
 function PanelIcon() {
-  return <Icon name="canvas" size={16} />
+  return <Icon name="image" size={16} />
 }
 
 // 根级兜底：连 App 自己抛错（例如读盘数据异常）也不能让面板变白屏

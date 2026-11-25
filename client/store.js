@@ -9,7 +9,7 @@ export const VIEWS = [
   { id: 'config', label: '配置', icon: 'sliders' },
 ]
 
-export const NODE_TYPES = { image: '图片', text: '文本', config: '配置', audio: '音频', group: '组' }
+export const NODE_TYPES = { image: '图片', video: '视频', text: '文本', config: '配置', audio: '音频', group: '组' }
 
 export const GRID_STYLES = [
   { id: 'dots', label: '点阵' },
@@ -18,11 +18,15 @@ export const GRID_STYLES = [
 ]
 
 export const RATIOS = [
+  { id: '自动', label: '自动', w: 1024, h: 1024 },
   { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+  { id: '2:3', label: '2:3', w: 832, h: 1248 },
+  { id: '3:2', label: '3:2', w: 1248, h: 832 },
   { id: '4:3', label: '4:3', w: 1152, h: 864 },
   { id: '3:4', label: '3:4', w: 864, h: 1152 },
-  { id: '16:9', label: '16:9', w: 1280, h: 720 },
-  { id: '9:16', label: '9:16', w: 720, h: 1280 },
+  { id: '16:9', label: '16:9', w: 1536, h: 864 },
+  { id: '9:16', label: '9:16', w: 864, h: 1536 },
+  { id: '21:9', label: '21:9', w: 1792, h: 768 },
 ]
 
 export const QUALITIES = ['自动', '低', '中', '高', '极高', '最高']
@@ -53,19 +57,37 @@ export function newCanvas(name = '未命名画布') {
   return { id: newId('cv'), name, nodes: [], edges: [], camera: { x: 0, y: 0, s: 1 }, grid: 'dots', updatedAt: Date.now() }
 }
 
-export function defaultSize(type) {
+/** 图片节点：默认宽度与文本/配置节点对齐，标题栏高度单独算，尺寸按真实比例推导。 */
+export const IMAGE_W = 240
+export const IMAGE_W_MAX = 280
+export const IMAGE_HEAD = 28
+export const NODE_GAP = 18
+
+/** '3:4' → 3/4；坏值回落 1。 */
+export function ratioValue(ratio) {
+  const [rw, rh] = String(ratio || '1:1').split(':').map(Number)
+  return Number.isFinite(rw) && Number.isFinite(rh) && rw > 0 && rh > 0 ? rw / rh : 1
+}
+
+/** 给定比例下图片节点的整体尺寸（含标题栏）。 */
+export function imageSize(ratio = '1:1', w = IMAGE_W) {
+  return { w, h: Math.round(w / ratioValue(ratio)) + IMAGE_HEAD }
+}
+
+export function defaultSize(type, ratio = '1:1') {
   switch (type) {
-    case 'image': return { w: 240, h: 268 }
-    case 'audio': return { w: 240, h: 140 }
+    case 'image': return imageSize(ratio)
+    case 'video': return { w: 320, h: 260 }
+    case 'audio': return { w: 232, h: 140 }
     case 'text': return { w: 230, h: 160 }
-    case 'config': return { w: 240, h: 176 }
+    case 'config': return { w: 232, h: 256 }
     case 'group': return { w: 420, h: 320 }
-    default: return { w: 240, h: 200 }
+    default: return { w: 232, h: 200 }
   }
 }
 
 export function makeNode(type, at, extra = {}) {
-  const size = defaultSize(type)
+  const size = defaultSize(type, extra.ratio)
   const node = {
     id: newId(type[0]),
     type,
@@ -80,14 +102,32 @@ export function makeNode(type, at, extra = {}) {
   }
   if (type === 'text') node.text = extra.text ?? ''
   if (type === 'config') {
+    node.mode = extra.mode ?? 'image'
     node.modelKey = extra.modelKey ?? ''
     node.ratio = extra.ratio ?? '1:1'
     node.count = extra.count ?? 1
+    node.resolution = extra.resolution ?? '自动'
+    node.quality = extra.quality ?? '自动'
+    node.prompt = extra.prompt ?? ''
   }
   if (type === 'image') {
     node.prompt = extra.prompt ?? ''
     node.ratio = extra.ratio ?? '1:1'
+    node.resolution = extra.resolution ?? '自动'
     node.locked = extra.locked ?? true
+    // 批量图组：一张图节点可以装多张。images[0] 是默认主图，
+    // primaryImageId 指谁，节点正面就显示谁。
+    // storageKey 仍表示「主图」的存储键，保持与旧数据兼容。
+    node.images = extra.images ?? []
+    node.primaryImageId = extra.primaryImageId ?? ''
+  }
+  if (type === 'video') {
+    node.prompt = extra.prompt ?? ''
+    node.ratio = extra.ratio ?? '16:9'
+    node.seconds = extra.seconds ?? 4
+    // 任务 ID 落在节点上：刷新后还能续查（源项目存内存 Map，刷新即丢）
+    node.videoTaskId = extra.videoTaskId ?? ''
+    node.storageKey = extra.storageKey ?? ''
   }
   if (type === 'audio') node.prompt = extra.prompt ?? ''
   return node
@@ -168,37 +208,48 @@ export function initialState() {
     channels: [],
     prompts: PROMPT_SEED.map(p => ({ ...p })),
     promptSources: [],
+    showToolbarLabels: false,
     assets: ASSET_SEED.map(a => ({ ...a })),
-    defaults: { image: { modelKey: '', size: '1024x1024', ratio: '1:1', count: 1, quality: '自动', resolution: '自动' }, canvasCount: 1 },
+    defaults: { image: { modelKey: '', size: '1024x1024', ratio: '1:1', count: 1, quality: '自动', resolution: '自动', transparent: false }, canvasCount: 1 },
     records: [],
     assistantMessages: [],
     assistantModel: null,
     configTab: 'channels',
     grid: 'dots',
+    theme: 'system',
   }
 }
 
-/** 演示用：打开产品时先给一张示例画布，让画布页不是空的。 */
+/** 演示用：打开产品时先给一张示例画布，让画布页不是空的。
+ *  多图默认垂直等距排列：三张图同一列、同一宽度、间距 NODE_GAP，
+ *  从配置节点引出的三条连线因此平行不交叉。 */
 export function seedCanvas() {
+  const gap = NODE_GAP
+  const size = imageSize('3:4')
+  const colX = 700
+  const top = 180
+  const groupPad = 40
   // 显式矩形坐标，避免 makeNode 的中心定位算出重叠
   const place = (type, x, y, w, h, extra) => {
     const n = makeNode(type, { x: x + w / 2, y: y + h / 2 }, { ...extra, w, h })
     n.x = x; n.y = y
     return n
   }
-  const g = place('group', 660, 120, 640, 700, { name: '霓虹街角' })
+  const shots = [
+    { y: top, prompt: '雨夜的霓虹街角，湿润地面反射招牌' },
+    { y: top + size.h + gap, prompt: '雨夜的霓虹街角，湿润地面反射招牌' },
+    { y: top + (size.h + gap) * 2, prompt: '同一街角的清晨，雨停后的反光' },
+  ]
+  const images = shots.map(s => place('image', colX, s.y, size.w, size.h, { prompt: s.prompt, ratio: '3:4' }))
+  const bottom = images[images.length - 1].y + size.h
+  const g = place('group', colX - groupPad, top - 60, size.w + groupPad * 2, bottom - top + groupPad + 60, { name: '霓虹街角' })
   const t = place('text', 120, 300, 230, 160, { text: '雨夜的霓虹街角，湿润地面反射招牌' })
-  const c = place('config', 400, 300, 240, 176, { ratio: '3:4', count: 1 })
-  const a = place('image', 700, 200, 240, 268, { prompt: '雨夜的霓虹街角，湿润地面反射招牌', ratio: '3:4' })
-  const b = place('image', 980, 200, 240, 268, { prompt: '雨夜的霓虹街角，湿润地面反射招牌', ratio: '3:4' })
-  const d = place('image', 700, 510, 240, 268, { prompt: '同一街角的清晨，雨停后的反光', ratio: '3:4' })
+  const c = place('config', 400, 300, 232, 176, { ratio: '3:4', count: 1 })
   const edges = [
     { id: newId('e'), from: t.id, to: c.id },
-    { id: newId('e'), from: c.id, to: a.id },
-    { id: newId('e'), from: c.id, to: b.id },
-    { id: newId('e'), from: c.id, to: d.id },
+    ...images.map(n => ({ id: newId('e'), from: c.id, to: n.id })),
   ]
-  return { nodes: [g, t, c, a, b, d], edges }
+  return { nodes: [g, t, c, ...images], edges }
 }
 
 export function canConnect(nodes, edges, from, to) {
@@ -264,6 +315,9 @@ function sanitizeNode(raw, i) {
   if (!raw || typeof raw !== 'object') return null
   const type = NODE_TYPES[raw.type] ? raw.type : 'text'
   const size = defaultSize(type)
+  const rawStatus = STATUSES.includes(raw.status) ? raw.status : 'idle'
+  // 刷新/重启后，不可断点续查的非视频任务或无任务 ID 的视频任务自动归位，避免残留运行中动画
+  const interrupted = rawStatus === 'running' && (type !== 'video' || !raw.videoTaskId)
   const node = {
     ...raw,
     id: typeof raw.id === 'string' && raw.id ? raw.id : `n_${i}`,
@@ -273,7 +327,8 @@ function sanitizeNode(raw, i) {
     w: Math.max(40, numOr(raw.w, size.w)),
     h: Math.max(40, numOr(raw.h, size.h)),
     name: typeof raw.name === 'string' ? raw.name : '',
-    status: STATUSES.includes(raw.status) ? raw.status : 'idle',
+    status: interrupted ? 'failed' : rawStatus,
+    error: interrupted ? '页面刷新后生成已中断，请重新生成' : (typeof raw.error === 'string' ? raw.error : ''),
     z: numOr(raw.z, type === 'group' ? 3 : 2),
   }
   if (Array.isArray(raw.childIds)) node.childIds = raw.childIds.filter(id => typeof id === 'string')
@@ -316,8 +371,11 @@ export function sanitizeState(raw) {
         id: typeof c.id === 'string' && c.id ? c.id : `ch_${i}`,
         name: typeof c.name === 'string' ? c.name : '',
         baseUrl: typeof c.baseUrl === 'string' ? c.baseUrl : '',
+        // 明文密钥：生成请求要用它。存在浏览器本地（LS.config），
+        // 这是「浏览器直连/Host 转发都不带后端账号体系」的必然结果。
+        apiKey: typeof c.apiKey === 'string' ? c.apiKey : '',
         keyHint: typeof c.keyHint === 'string' ? c.keyHint : '',
-        hasKey: Boolean(c.hasKey),
+        hasKey: Boolean(c.apiKey) || Boolean(c.hasKey),
         enabled: c.enabled !== false,
         models: Array.isArray(c.models)
           ? c.models.filter(m => m && typeof m === 'object').map((m, k) => ({
@@ -347,5 +405,27 @@ export function sanitizeState(raw) {
   }
 
   out.openCanvasId = out.canvases.some(c => c.id === raw.openCanvasId) ? raw.openCanvasId : null
+  // 界面偏好：不在白名单里会被静默丢掉，表现为「改了开关重启就还原」
+  out.showToolbarLabels = Boolean(raw.showToolbarLabels)
+  out.theme = ['light', 'dark', 'system'].includes(raw.theme) ? raw.theme : 'system'
   return out
+}
+
+/** 轻量外部草稿存储：画布输入框与助手共用同一份草稿，敲键盘时不触发根组件和画布重渲染。 */
+export function createDraftStore(initial = '') {
+  let value = String(initial || '')
+  const subs = new Set()
+  return {
+    get: () => value,
+    set(next) {
+      const v = String(typeof next === 'function' ? next(value) : (next ?? ''))
+      if (v === value) return
+      value = v
+      for (const fn of subs) fn(v)
+    },
+    subscribe(fn) {
+      subs.add(fn)
+      return () => subs.delete(fn)
+    },
+  }
 }

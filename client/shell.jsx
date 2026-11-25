@@ -3,17 +3,32 @@ import React from 'react'
 import css from './css.js'
 import { Boundary, Dialog, Icon, IconBtn, Toast } from './ui.jsx'
 import {
-  VIEWS, initialState, newCanvas, newId, makeNode, seedCanvas, sanitizeState,
-  currentView, navigate, openCanvasIn, closeCanvasIn,
+  VIEWS, initialState, newCanvas, newId, imageSize, makeNode, seedCanvas, sanitizeState,
+  currentView, navigate, openCanvasIn, closeCanvasIn, createDraftStore,
 } from './store.js'
 import { fetchModels, modelLabel, streamText } from './api.js'
+import { LS } from './storage/keys.js'
+import { makeImageEntry } from './canvas/batch.js'
+import { migrate } from './storage/migrate.js'
+import { isQuotaError } from './storage/idb.js'
+import { saveState, loadState, flushState, loadConfigMirror } from './storage/persist.js'
+import {
+  BUILTIN_PROMPT_SOURCES,
+  hydratePromptCache,
+  readPromptCache,
+  normalizeSourceRecord,
+  mergePromptsWithSources,
+  fetchAllSources,
+  fetchRemoteImagesToStorage,
+} from './prompts/sources.js'
 import { CanvasListPage, CanvasEditor } from './pages/canvas.jsx'
 import { StudioPage } from './pages/studio.jsx'
 import { PromptsPage } from './pages/prompts.jsx'
 import { AssetsPage } from './pages/assets.jsx'
 import { ConfigPage } from './pages/config.jsx'
 
-const STORE_KEY = 'dsh-chunfeng-image:state:v2'
+// 旧键仍指向 storage/keys.js 的同名常量：迁移器只读不写它。
+const STORE_KEY = LS.legacyState
 
 // 顶栏四项；「配置」移到右侧齿轮
 const NAV = [
@@ -23,30 +38,30 @@ const NAV = [
   { id: 'assets', label: '资产', icon: 'folder' },
 ]
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : null
-  } catch {
-    return null
-  }
+// 首屏状态：同步先给一份种子（保证首帧不白屏），随后异步用真实数据替换。
+// 顺序很重要：先迁移（把旧 localStorage 搬进 IDB），再读。
+function seedState() {
+  const init = initialState()
+  init.canvases = [{ ...newCanvas('霓虹街角'), ...seedCanvas() }]
+  init.openCanvasId = null
+  return init
 }
 
 export function App() {
-  const [state, setState] = React.useState(() => {
-    const saved = load()
-    if (saved) return sanitizeState(saved)
-    const init = initialState()
-    init.canvases = [{ ...newCanvas('霓虹街角'), ...seedCanvas() }]
-    init.openCanvasId = null
-    return init
-  })
+  const [state, setState] = React.useState(seedState)
+  // hydrated=false 时界面可渲染但不可写盘，避免首帧空 state 覆盖磁盘
+  const [hydrated, setHydrated] = React.useState(false)
+  const bootedRef = React.useRef(false)
 
-  // 画布输入条与助手共用这一份草稿：谁显示谁持有，内容不丢
-  const [draft, setDraft] = React.useState(() => (typeof window !== 'undefined' && window.__CF_DEV_PROMPT ? window.__CF_DEV_PROMPT : ''))
+  // 画布输入条与助手共用外部草稿容器：谁显示谁订阅，敲击键盘不触发顶层与画布重渲染
+  const draftStore = React.useMemo(
+    () => createDraftStore(typeof window !== 'undefined' && window.__CF_DEV_PROMPT ? window.__CF_DEV_PROMPT : ''),
+    [],
+  )
   const [studioPrompt, setStudioPrompt] = React.useState('')
+  // 画布送来工作台的参考图（storageKey）。工作台消费后应当清掉，
+  // 否则下次从导航进来还会带着上一张。
+  const [studioRef, setStudioRef] = React.useState(null)
   const [returnTo, setReturnTo] = React.useState(null)
   const [toast, setToast] = React.useState(null)
   const [dockOpen, setDockOpen] = React.useState(false)
@@ -64,9 +79,99 @@ export function App() {
     return () => { alive = false }
   }, [])
 
+  // 启动：迁移 → 读 → 置 hydrated。
+  // 用 ref 挡住 StrictMode 的二次执行，否则会跑两遍迁移。
   React.useEffect(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)) } catch { /* 存不下就算了 */ }
-  }, [state])
+    if (bootedRef.current) return
+    bootedRef.current = true
+    let alive = true
+    ;(async () => {
+      try {
+        const result = await migrate()
+        if (result.status === 'done') say(`已迁移 ${result.canvases} 个画布到新存储`)
+      } catch (error) {
+        // 迁移失败不阻断使用：旧数据还在，只是这次读到的是种子
+        say(`本地数据迁移未完成：${error.message}`, 'error')
+      }
+      try {
+        const [promptCache, loadedPack] = await Promise.all([
+          hydratePromptCache().catch(() => readPromptCache()),
+          loadState(),
+        ])
+        const { state: loaded, from } = loadedPack
+        let restored = (loaded && from !== 'none') ? sanitizeState(loaded) : null
+
+        const applyPromptsSync = (st) => {
+          const normSources = (st.promptSources || []).map((s) => {
+            const norm = normalizeSourceRecord(s)
+            return {
+              id: norm.id,
+              name: norm.name,
+              url: norm.url,
+              fallbackUrl: norm.fallbackUrl,
+              homepage: norm.homepage,
+              enabled: norm.enabled,
+              builtIn: norm.builtIn,
+            }
+          })
+          return {
+            ...st,
+            promptSources: normSources,
+            prompts: mergePromptsWithSources(st.prompts, normSources, promptCache),
+          }
+        }
+
+        if (alive && restored) {
+          setState(applyPromptsSync(restored))
+        }
+
+        // 浏览器存储里没有渠道或缺少镜像恢复字段时，用本机文件兜底恢复。
+        const browserChannels = (loaded && Array.isArray(loaded.channels)) ? loaded.channels : []
+        if (alive && browserChannels.length === 0) {
+          const mirror = await loadConfigMirror()
+          if (alive && mirror?.channels?.length) {
+            setState((s) => applyPromptsSync(sanitizeState({
+              ...s,
+              channels: mirror.channels,
+              defaults: mirror.defaults || s.defaults,
+              assistantModel: mirror.assistantModel ?? s.assistantModel,
+              promptSources: (s.promptSources?.length ? s.promptSources : mirror.promptSources) || s.promptSources,
+            })))
+            say(`已从本机文件恢复 ${mirror.channels.length} 个渠道`)
+          }
+        }
+      } catch { /* 读失败就保留种子 */ }
+      if (alive) setHydrated(true)
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 写盘：hydrated 之前一律不写（防首帧覆盖），之后 400ms 防抖 + canvases 引用短路。
+  React.useEffect(() => {
+    if (!hydrated) return
+    saveState(state, {
+      onError: (error, info) => {
+        say(info?.quota ? '本地存储已满，本次修改可能丢失' : `保存失败：${error.message}`, 'error')
+      },
+    })
+  }, [state, hydrated])
+
+  // 关页面/切后台时立刻冲刷，否则防抖窗口内的最后一笔会丢
+  React.useEffect(() => {
+    const flush = () => { void flushState() }
+    const onHide = () => { if (document.visibilityState === 'hidden') flush() }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHide)
+    }
+  }, [])
+
+  // 给回调读最新 state 用：useCallback 的依赖里放 state 会让它每帧重建
+  const stateRef = React.useRef(state)
+  stateRef.current = state
 
   const say = React.useCallback((text, kind) => {
     setToast({ text, kind, at: Date.now() })
@@ -74,6 +179,108 @@ export function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2200)
   }, [])
   React.useEffect(() => () => { clearTimeout(toastTimer.current); streamAbort.current?.abort() }, [])
+
+  /**
+   * 把工作台的生成结果送到画布，成为图片节点。
+   *
+   * 几个决定：
+   *   - 目标画布：当前打开的 → 第一个 → 都没有就新建
+   *   - 一批多张塞进**同一个节点**（批量图组），而不是铺成 N 个节点
+   *   - 落点：放在已有节点包围盒的右侧，不压在别人身上
+   */
+  /** 画布节点 → 工作台：带上提示词和这张图当参考图。 */
+  const sendToStudio = React.useCallback((node) => {
+    const key = node?.storageKey || node?.images?.[0]?.storageKey || ''
+    // 离开编辑器必须同时清掉 openCanvasId —— currentView 优先看它，
+    // 只改 view 是切不走的（这里踩过一次）。
+    patch({ view: 'studio', openCanvasId: null })
+    setStudioPrompt(node?.prompt || '')
+    setStudioRef(key ? { storageKey: key, prompt: node.prompt || '' } : null)
+    say(key ? '已送去工作台（图作为参考图）' : '已送去工作台（这个节点没有图片）')
+  }, [say])
+
+  const sendToCanvas = React.useCallback((record, opts = {}) => {
+    const images = (record?.images || []).filter((i) => i.storageKey)
+    if (!images.length) {
+      say('这批图没有本地副本，先重新生成再送', 'error')
+      return null
+    }
+
+    // 目标画布要在**更新之外**先确定：setState 的 updater 是异步执行的，
+    // 在里面赋值给外部变量，等 say() 读到的还是空串（之前的 bug：
+    // 提示语永远显示兜底名「生成结果」）。
+    const snap = stateRef.current
+    const existing = snap.canvases.find((c) => c.id === snap.openCanvasId) || snap.canvases[0] || null
+    const fallbackName = (record.prompt || '生成结果').slice(0, 16)
+    const targetId = existing?.id || null
+    const targetName = existing?.name || fallbackName
+
+    setState((s) => {
+      const cv = (targetId ? s.canvases.find((c) => c.id === targetId) : null)
+        || newCanvas(fallbackName)
+
+      // 找落点：最右侧节点再往右 80px，纵向对齐最上面的节点
+      const nodes = cv.nodes || []
+      let x = 80
+      let y = 120
+      if (nodes.length) {
+        let maxRight = -Infinity
+        let minTop = Infinity
+        for (const n of nodes) {
+          if (n.type === 'group') continue
+          maxRight = Math.max(maxRight, n.x + (n.w || 240))
+          minTop = Math.min(minTop, n.y)
+        }
+        if (Number.isFinite(maxRight)) {
+          x = maxRight + 80
+          y = Number.isFinite(minTop) ? minTop : 120
+        }
+      }
+
+      const entries = images.map((img, i) => makeImageEntry({
+        storageKey: img.storageKey,
+        width: img.width || 0,
+        height: img.height || 0,
+        bytes: img.bytes || 0,
+        mimeType: img.mimeType || '',
+        prompt: record.prompt || '',
+      }))
+      // 第一张决定节点尺寸：按真实宽高比算，别一律当方图
+      const first = entries[0]
+      const size = first?.width && first?.height
+        ? imageSize(`${first.width}:${first.height}`)
+        : imageSize('1:1')
+
+      const node = {
+        ...makeNode('image', { x, y }, { prompt: record.prompt, ratio: record.ratio }),
+        x,
+        y,
+        ...size,
+        status: 'done',
+        prompt: record.prompt || '',
+        images: entries,
+        primaryImageId: first?.id || '',
+        storageKey: first?.storageKey || '',
+      }
+
+      const nextCanvas = { ...cv, nodes: [...nodes, node], updatedAt: Date.now() }
+      const canvases = s.canvases.some((c) => c.id === cv.id)
+        ? s.canvases.map((c) => (c.id === cv.id ? nextCanvas : c))
+        : [...s.canvases, nextCanvas]
+
+      return {
+        ...s,
+        canvases,
+        // 送完就留在工作台，只是把这张画布设为当前，用户点「画布」直接看到
+        openCanvasId: cv.id,
+        canvasPickedIds: [node.id],
+      }
+    })
+
+    say(`已送到画布「${targetName}」`)
+    return targetName
+  }, [say])
+
 
   const patch = (p) => setState(s => ({ ...s, ...p }))
   const openCanvas = state.canvases.find(c => c.id === state.openCanvasId) || null
@@ -128,36 +335,141 @@ export function App() {
     input.click()
   }
 
-  /** 使用一条提示词：在画布里新建节点，否则填进生图工作台。 */
-  const usePrompt = (p) => {
-    if (openCanvas) {
-      const node = {
-        id: newId('i'), type: 'image',
-        x: 220 + openCanvas.nodes.length * 26, y: 220 + openCanvas.nodes.length * 20,
-        w: 240, h: 268, name: '', status: 'idle', z: 2,
-        prompt: p.text, ratio: state.defaults.image.ratio || '1:1', locked: true,
+  const enableBuiltinSources = React.useCallback(async () => {
+    const existingUrls = new Set((stateRef.current.promptSources || []).map((s) => normalizeSourceRecord(s).url))
+    const toAdd = BUILTIN_PROMPT_SOURCES.filter((b) => !existingUrls.has(b.url))
+    const mergedSources = [...(stateRef.current.promptSources || []), ...toAdd]
+    setState((s) => ({ ...s, promptSources: mergedSources }))
+    say('正在拉取官方提示词来源…')
+    const out = await fetchAllSources(mergedSources, { onlyMissingOrFailed: true })
+    setState((s) => ({
+      ...s,
+      promptSources: mergedSources,
+      prompts: mergePromptsWithSources(s.prompts, mergedSources, out.cache),
+    }))
+    const okCount = out.results.filter((r) => r.ok).length
+    const failCount = out.results.length - okCount
+    if (failCount === 0) say(`已加载 ${out.prompts.length} 条提示词`)
+    else say(`本次 ${okCount} 成功 / ${failCount} 失败，共 ${out.prompts.length} 条可用`, 'error')
+  }, [say])
+
+  const copyPrompt = React.useCallback(async (p) => {
+    const text = p?.text || p?.prompt || ''
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      say('提示词已复制')
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0'
+      document.body.appendChild(ta)
+      ta.select()
+      try {
+        document.execCommand('copy')
+        say('提示词已复制')
+      } catch {
+        say('复制失败，浏览器不允许剪贴板', 'error')
+      } finally {
+        document.body.removeChild(ta)
       }
-      updateCanvas(openCanvas.id, { nodes: [...openCanvas.nodes, node] })
+    }
+  }, [say])
+
+  const savePromptAsAsset = React.useCallback((p) => {
+    if (!p) return
+    const asset = {
+      id: newId('a'),
+      kind: 'text',
+      title: p.title || '收藏的提示词',
+      text: p.text || p.prompt || '',
+      coverUrl: p.coverUrl || '',
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      source: p.category || p.sourceName || '提示词中心',
+      at: Date.now(),
+    }
+    setState((s) => ({ ...s, assets: [asset, ...s.assets] }))
+    say('已收藏到我的资产')
+  }, [say])
+
+  /** 使用一条提示词：在画布里新建节点，否则填进生图工作台，支持同步拉取配套参考图。 */
+  const usePrompt = React.useCallback(async (p, { withRefs = true } = {}) => {
+    const text = p?.text || p?.prompt || ''
+    const refUrls = withRefs && Array.isArray(p?.referenceImageUrls) ? p.referenceImageUrls.filter(Boolean) : []
+    const curOpenCanvas = stateRef.current.canvases.find((c) => c.id === stateRef.current.openCanvasId) || null
+
+    if (curOpenCanvas) {
+      const ratio = stateRef.current.defaults?.image?.ratio || '1:1'
+      const size = imageSize(ratio)
+      const baseX = 220 + curOpenCanvas.nodes.length * 26
+      const baseY = 220 + curOpenCanvas.nodes.length * 20
+      const targetNode = {
+        id: newId('i'), type: 'image',
+        x: baseX, y: baseY,
+        w: size.w, h: size.h, name: '', status: 'idle', z: 2,
+        prompt: text, ratio, locked: true,
+      }
+      updateCanvas(curOpenCanvas.id, (c) => ({ nodes: [...c.nodes, targetNode] }))
+      if (refUrls.length) {
+        say(`已用「${p.title}」建节点，正在加载 ${refUrls.length} 张配套参考图…`)
+        const downloaded = await fetchRemoteImagesToStorage(refUrls, { max: 4 })
+        if (downloaded.length) {
+          const refNodes = downloaded.map((it, idx) => {
+            const aspect = it.width && it.height ? it.width / it.height : 1
+            const rw = 200
+            const rh = Math.round(rw / Math.max(0.25, Math.min(4, aspect))) + 28
+            return {
+              ...makeNode('image', { x: baseX - 280, y: baseY + idx * (rh + 16) }, { w: rw, h: rh }),
+              x: baseX - 280,
+              y: baseY + idx * (rh + 16),
+              status: 'done',
+              storageKey: it.storageKey,
+              images: [makeImageEntry({ storageKey: it.storageKey, width: it.width, height: it.height, prompt: '' })],
+              primaryImageId: '',
+              name: `参考图 ${idx + 1}`,
+            }
+          }).map((rn) => ({ ...rn, primaryImageId: rn.images[0]?.id || '' }))
+          const refEdges = refNodes.map((rn) => ({ id: newId('e'), from: rn.id, to: targetNode.id }))
+          updateCanvas(curOpenCanvas.id, (c) => ({
+            nodes: [...c.nodes, ...refNodes],
+            edges: [...c.edges, ...refEdges],
+          }))
+          say(`已挂载 ${downloaded.length} 张配套参考图到画布节点`)
+          return
+        }
+      }
       say(`已用「${p.title}」新建图片节点`)
       return
     }
-    setStudioPrompt(p.text)
+
+    setStudioPrompt(text)
     patch({ view: 'studio', openCanvasId: null })
-    say(`已填入「${p.title}」`)
-  }
+    if (refUrls.length) {
+      say(`已填入「${p.title}」，正在加载 ${refUrls.length} 张配套参考图…`)
+      const downloaded = await fetchRemoteImagesToStorage(refUrls, { max: 4 })
+      if (downloaded.length) {
+        setStudioRef(downloaded.map((it) => ({ storageKey: it.storageKey, name: it.name })))
+        say(`已填入提示词并加载 ${downloaded.length} 张参考图`)
+      } else {
+        say(`已填入「${p.title}」（配套参考图拉取失败）`)
+      }
+    } else {
+      say(`已填入「${p.title}」`)
+    }
+  }, [say])
 
   // ---------- 助手 ----------
 
   const setAssistantModel = (sel) => { patch({ assistantModel: sel || null }); setModelPick(false) }
 
   const sendAssistant = async () => {
-    const text = draft.trim()
+    const text = draftStore.get().trim()
     if (!text || streaming) return
     const user = { id: newId('m'), role: 'user', text }
     const answer = { id: newId('m'), role: 'assistant', text: '' }
     const history = [...messages, user]
     patch({ assistantMessages: [...history, answer] })
-    setDraft('')
+    draftStore.set('')
     const controller = new AbortController()
     streamAbort.current = controller
     setStreaming(true)
@@ -199,10 +511,21 @@ export function App() {
     say('已插入画布')
   }
 
+  React.useLayoutEffect(() => {
+    if (typeof document === 'undefined') return
+    if (document.querySelector('style[data-cf-styles]')) return
+    const existing = [...document.head.querySelectorAll('style')].find((s) => s.textContent?.includes('.cf-app'))
+    if (existing) { existing.setAttribute('data-cf-styles', '1'); return }
+    const el = document.createElement('style')
+    el.setAttribute('data-cf-styles', '1')
+    el.textContent = css
+    document.head.appendChild(el)
+  }, [])
+
+  const themeCls = state.theme === 'dark' ? ' dark' : state.theme === 'light' ? ' light' : ''
+
   return (
-    <div className="cf-app">
-      <style>{css}</style>
-      <div className="cf-ambient" aria-hidden="true"><i /><i /><i /></div>
+    <div className={`cf-app${themeCls}`}>
 
       <header className="cf-nav">
         <div className="cf-island cf-island--nav">
@@ -227,9 +550,9 @@ export function App() {
           </button>
           <button type="button" className="cf-glass-btn cf-glass-btn--icon" title="配置"
             aria-label="配置" onClick={() => go('config')}>
-            <Icon name="sliders" size={15} />
+            <Icon name="gear" size={15} />
           </button>
-          <button type="button" className={`cf-glass-btn${dockOpen ? ' is-on' : ''}`}
+          <button type="button" className={`cf-glass-btn cf-glass-btn--dock${dockOpen ? ' is-on' : ''}`}
             aria-pressed={dockOpen} onClick={() => setDockOpen(v => !v)}>
             <Icon name="message" size={14} />
             助手
@@ -244,11 +567,16 @@ export function App() {
             channels={state.channels}
             defaults={state.defaults.image}
             assistantModel={state.assistantModel || null}
-            draft={draft}
-            onDraftChange={setDraft}
+            prompts={state.prompts}
+            onSendToStudio={sendToStudio}
+            draftStore={draftStore}
             showComposer={!dockOpen}
             onChange={(p) => updateCanvas(openCanvas.id, p)}
             onBack={() => setState(s => closeCanvasIn(s))}
+            onSaveAsset={(asset) => setState((st) => ({ ...st, assets: [asset, ...st.assets] }))}
+            showToolbarLabels={state.showToolbarLabels}
+            theme={state.theme || 'system'}
+            onTheme={(theme) => patch({ theme })}
             say={say}
           />
         ) : null}
@@ -269,11 +597,22 @@ export function App() {
             channels={state.channels}
             defaults={state.defaults.image}
             records={state.records}
+            assets={state.assets}
+            prompts={state.prompts}
             prompt={studioPrompt}
             onPrompt={setStudioPrompt}
             onCreateRecord={(rec) => setState(s => ({ ...s, records: [rec, ...s.records] }))}
+            onUpdateRecord={(id, updater) => setState(s => ({
+              ...s,
+              records: s.records.map(r => r.id === id ? (typeof updater === 'function' ? updater(r) : { ...r, ...updater }) : r),
+            }))}
             onDeleteRecords={(ids) => setState(s => ({ ...s, records: s.records.filter(r => !ids.includes(r.id)) }))}
+            onSaveAsset={(asset) => setState(s => ({ ...s, assets: [asset, ...s.assets] }))}
             onLookupPrompts={() => { setReturnTo('studio'); patch({ view: 'prompts', openCanvasId: null }) }}
+            onSendToCanvas={sendToCanvas}
+            initialRefs={Array.isArray(studioRef) ? studioRef : null}
+            initialRef={!Array.isArray(studioRef) ? studioRef : null}
+            onConsumeRef={() => setStudioRef(null)}
             say={say}
           />
         ) : null}
@@ -284,6 +623,9 @@ export function App() {
             sources={state.promptSources}
             returnTo={returnTo}
             onUse={usePrompt}
+            onCopy={copyPrompt}
+            onSaveAsset={savePromptAsAsset}
+            onEnableBuiltins={enableBuiltinSources}
             onBack={returnTo ? () => { setReturnTo(null); patch({ view: returnTo }) } : null}
           />
         ) : null}
@@ -293,7 +635,7 @@ export function App() {
             assets={state.assets}
             onSave={(next) => patch({ assets: next })}
             onDelete={(id) => setState(s => ({ ...s, assets: s.assets.filter(a => a.id !== id) }))}
-            onImport={() => say('资产包导入接 Host 后可用')}
+            onImport={(imported) => setState(s => ({ ...s, assets: [...imported, ...s.assets] }))}
             say={say}
           />
         ) : null}
@@ -307,8 +649,27 @@ export function App() {
             defaults={state.defaults}
             onDefaults={(defaults) => patch({ defaults })}
             promptSources={state.promptSources}
-            onPromptSources={(promptSources) => patch({ promptSources })}
+            onPromptSources={(promptSources) => setState((s) => ({
+              ...s,
+              promptSources,
+              prompts: mergePromptsWithSources(s.prompts, promptSources, readPromptCache()),
+            }))}
+            showToolbarLabels={state.showToolbarLabels}
+            onShowToolbarLabels={(v) => patch({ showToolbarLabels: v })}
+            theme={state.theme || 'system'}
+            onTheme={(theme) => patch({ theme })}
+            onPrompts={(_pulled, nextCache) => {
+              // 按当前启用源与最新缓存精确重放合并，既覆盖更新已有条目的封面/正文，也清除被删来源的残留
+              setState((s) => ({
+                ...s,
+                prompts: mergePromptsWithSources(s.prompts, s.promptSources, nextCache || readPromptCache()),
+              }))
+            }}
+            onUsePrompt={usePrompt}
+            onCopyPrompt={copyPrompt}
+            onSavePromptAsset={savePromptAsAsset}
             say={say}
+            state={state}
           />
         ) : null}
       </Boundary>
@@ -316,8 +677,7 @@ export function App() {
       {dockOpen ? (
         <AssistantDock
           messages={messages}
-          draft={draft}
-          onDraftChange={setDraft}
+          draftStore={draftStore}
           streaming={streaming}
           onSend={sendAssistant}
           onStop={stopAssistant}
@@ -400,7 +760,9 @@ function ModelDialog({ models, selection, onPick, onClose }) {
 
 // ---------- 助手侧栏 ----------
 
-function AssistantDock({ messages, draft, onDraftChange, streaming, onSend, onStop, onClose, onInsert, onClear, canInsert, modelLabelText }) {
+function AssistantDock({ messages, draftStore, streaming, onSend, onStop, onClose, onInsert, onClear, canInsert, modelLabelText }) {
+  const draft = React.useSyncExternalStore(draftStore.subscribe, draftStore.get, draftStore.get)
+  const onDraftChange = (v) => draftStore.set(v)
   const bodyRef = React.useRef(null)
   const inputRef = React.useRef(null)
   const imeAt = React.useRef(0)

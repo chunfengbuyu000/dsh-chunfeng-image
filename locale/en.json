@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Chunfeng canvas",
-    "description": "An infinite canvas for AI image work: image, text, video, audio and config nodes on one board, connected into generation flows."
+    "description": "An infinite canvas for AI image work: image, text, video, and config nodes on one board, connected into generation flows."
   }
 }

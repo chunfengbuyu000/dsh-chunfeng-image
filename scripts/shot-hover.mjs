@@ -1,17 +1,12 @@
 // 截「悬浮在发送钮上」的状态，用于确认提示气泡与悬浮色
-import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
-import { join, dirname } from 'node:path'
-import { existsSync } from 'node:fs'
+import { loadPuppeteer, findChromeExecutable } from './puppeteer-loader.mjs'
 
-const HERE = '/Users/xiao/.agents/skills/hallmark'
-const req = createRequire(join(HERE, 'noop.js'))
-let puppeteer = null
-for (const n of ['puppeteer-core', 'puppeteer']) {
-  try { puppeteer = (await import(pathToFileURL(req.resolve(n)).href)).default; break } catch {}
+const puppeteer = await loadPuppeteer()
+const exe = findChromeExecutable()
+if (!puppeteer || !exe) {
+  console.error('需要 puppeteer 与本地 Chrome/Chromium，已跳过（可安装 puppeteer-core 或设置 PUPPETEER_DIR / CHROME_PATH）')
+  process.exit(0)
 }
-const CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium']
-const exe = CHROMES.find(p => existsSync(p))
 
 const browser = await puppeteer.launch({ executablePath: exe, headless: 'new', args: ['--no-sandbox'] })
 const page = await browser.newPage()

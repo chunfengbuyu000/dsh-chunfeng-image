@@ -1,8 +1,25 @@
 {
   "name": "dsh-chunfeng-image",
   "version": "0.1.0",
-  "private": true,
   "description": "春风画布：DSH 里的无限画布创作工具，节点式 AI 出图与编排",
+  "author": "YOUR_NAME <your-email@example.com>",
+  "homepage": "https://github.com/YOUR_ORG/dsh-chunfeng-image#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_ORG/dsh-chunfeng-image.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_ORG/dsh-chunfeng-image/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek",
+    "plugin",
+    "infinite-canvas",
+    "ai-image",
+    "chunfeng"
+  ],
+  "license": "MIT",
   "type": "module",
   "main": "src/host.js",
   "exports": {
@@ -18,7 +35,9 @@
     "dist",
     "cordis.patch.yml",
     "locale",
-    "icon.svg"
+    "icon.svg",
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -38,12 +57,22 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "test": "node scripts/selftest.mjs && node scripts/host-test.mjs && node scripts/e2e.mjs",
+    "test": "node scripts/selftest.mjs && node scripts/history-test.mjs && node scripts/image-ops-test.mjs && node scripts/mask-test.mjs && node scripts/prompt-sources-test.mjs && node scripts/zip-test.mjs && node scripts/video-test.mjs && node scripts/host-test.mjs && node scripts/storage-test.mjs && node scripts/generate-test.mjs && node scripts/e2e.mjs",
+    "test:unit": "node scripts/selftest.mjs && node scripts/history-test.mjs && node scripts/image-ops-test.mjs && node scripts/mask-test.mjs && node scripts/prompt-sources-test.mjs && node scripts/zip-test.mjs && node scripts/video-test.mjs && node scripts/host-test.mjs",
     "test:ui": "node scripts/e2e.mjs",
-    "test:host": "node scripts/host-test.mjs"
+    "test:host": "node scripts/host-test.mjs",
+    "test:storage": "node scripts/storage-test.mjs",
+    "test:gen": "node scripts/generate-test.mjs",
+    "test:history": "node scripts/history-test.mjs",
+    "test:perf": "node scripts/perf-test.mjs 500",
+    "test:image": "node scripts/image-ops-test.mjs",
+    "test:zip": "node scripts/zip-test.mjs",
+    "test:prompts": "node scripts/prompt-sources-test.mjs",
+    "test:video": "node scripts/video-test.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.25.10"
-  },
-  "license": "MIT"
+    "esbuild": "^0.25.10",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
 }

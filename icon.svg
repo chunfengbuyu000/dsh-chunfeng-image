@@ -1,13 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="春风画布">
   <rect x="2" y="2" width="60" height="60" rx="14" fill="#0d0b0a"/>
-  <g fill="none" stroke="#f2e9dd" stroke-opacity="0.34" stroke-width="1.5">
-    <rect x="10" y="13" width="17" height="14" rx="3"/>
-    <rect x="37" y="13" width="17" height="14" rx="3"/>
-    <rect x="24" y="37" width="17" height="14" rx="3"/>
-  </g>
-  <g fill="none" stroke="#e08a4b" stroke-width="2" stroke-linecap="round">
-    <path d="M27 20h10"/>
-    <path d="M45.5 27v4.5a5 5 0 0 1-5 5H41"/>
-    <path d="M32.5 37v-4.5a5 5 0 0 1 5-5h.5"/>
+  <g fill="none" stroke="#f2e9dd" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="14" y="15" width="36" height="34" rx="7"/>
+    <circle cx="24.5" cy="25.5" r="3.2"/>
+    <path d="M17.6 43.4l9.4-11 7.4 8.2 4.6-4.9 8.4 7.7"/>
   </g>
 </svg>

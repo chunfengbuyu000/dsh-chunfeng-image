@@ -1,34 +1,21 @@
 // 审计用浏览器脚手架（只读）。
 // 用法：
-//   import { open, audit } from '/Users/xiao/tools/chunfeng/dsh-chunfeng-image/scripts/audit-lib.mjs'
+//   import { open, audit } from './scripts/audit-lib.mjs'
 //   const { page, errors, close } = await open('/editor.html?seed=demo')
 //   ... 操作 ...
 //   await close()   // 关掉浏览器（每个 process 只开一次更好）
 //
 // 约定：只在 /tmp 下写文件；不要启动或关闭 8899 端口上的服务；不要构建预览。
-import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
-import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { loadPuppeteer, findChromeExecutable } from './puppeteer-loader.mjs'
 
-const HALLMARK = '/Users/xiao/.agents/skills/hallmark'
 const BASE = 'http://127.0.0.1:8899'
 
-let puppeteer = null
-const req = createRequire(join(HALLMARK, 'noop.js'))
-for (const name of ['puppeteer-core', 'puppeteer']) {
-  try {
-    puppeteer = (await import(pathToFileURL(req.resolve(name)).href)).default
-    break
-  } catch { /* 换下一个 */ }
+const puppeteer = await loadPuppeteer()
+const exe = findChromeExecutable()
+if (!puppeteer || !exe) {
+  console.error('需要 puppeteer 与本地 Chrome/Chromium，已跳过（可安装 puppeteer-core 或设置 PUPPETEER_DIR / CHROME_PATH）')
+  process.exit(0)
 }
-if (!puppeteer) throw new Error('找不到 puppeteer')
-
-const exe = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-].find(existsSync)
 
 const browser = await puppeteer.launch({
   executablePath: exe,

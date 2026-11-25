@@ -51,13 +51,14 @@ export function modelLabel(models, selection) {
  * 流式取文本。onDelta(增量, 累积) 会被逐段调用。
  * @returns {Promise<string>} 完整文本
  */
-export async function streamText({ messages, system, model, maxTokens, signal, onDelta }) {
+export async function streamText({ messages, system, model, maxTokens, signal, onDelta, images }) {
   if (!IN_HOST) return previewStream({ messages, onDelta, signal })
 
   const res = await fetch(BASE + 'stream', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
-    body: JSON.stringify({ messages, system, model, maxTokens }),
+    // images: [{ mimeType, data(base64) }] —— 反推提示词要带图
+    body: JSON.stringify({ messages, system, model, maxTokens, images }),
     signal,
   })
   if (!res.ok) {
