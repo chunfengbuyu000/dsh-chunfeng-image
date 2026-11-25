@@ -28,7 +28,7 @@
 1. 克隆仓库并构建客户端产物：
 
 ```bash
-git clone https://github.com/YOUR_ORG/dsh-chunfeng-image.git
+git clone https://github.com/chunfengbuyu000/dsh-chunfeng-image.git
 cd dsh-chunfeng-image
 npm install
 npm run build

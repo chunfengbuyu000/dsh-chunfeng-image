@@ -2,14 +2,14 @@
   "name": "dsh-chunfeng-image",
   "version": "0.1.0",
   "description": "春风画布：DSH 里的无限画布创作工具，节点式 AI 出图与编排",
-  "author": "YOUR_NAME <your-email@example.com>",
-  "homepage": "https://github.com/YOUR_ORG/dsh-chunfeng-image#readme",
+  "author": "chunfeng <373119262@qq.com>",
+  "homepage": "https://github.com/chunfengbuyu000/dsh-chunfeng-image#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_ORG/dsh-chunfeng-image.git"
+    "url": "https://github.com/chunfengbuyu000/dsh-chunfeng-image.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_ORG/dsh-chunfeng-image/issues"
+    "url": "https://github.com/chunfengbuyu000/dsh-chunfeng-image/issues"
   },
   "keywords": [
     "dsh",
