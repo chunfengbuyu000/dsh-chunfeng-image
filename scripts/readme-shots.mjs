@@ -68,11 +68,11 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname.startsWith('/demo-art/') && req.method === 'GET') {
-    const key = url.pathname.replace('/demo-art/', '').replace(/\.png$/, '')
-    const buf = demoArtBuffers.get(key)
-    if (!buf) { res.writeHead(404).end('not found'); return }
-    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=3600' })
-    res.end(buf)
+    const key = url.pathname.replace('/demo-art/', '').replace(/\.(png|jpe?g|webp)$/i, '')
+    const entry = demoArtBuffers.get(key)
+    if (!entry) { res.writeHead(404).end('not found'); return }
+    res.writeHead(200, { 'content-type': entry.mimeType, 'cache-control': 'public, max-age=3600' })
+    res.end(entry.buffer)
     return
   }
 
@@ -115,8 +115,24 @@ await page.goto(`${base}/index.html?fresh=1`, { waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.cf-app')
 await wait(page, 400)
 
-// 2) 在浏览器 Canvas 中绘制 6 张富层次高分辨率作品图（3:4、1:1、4:3），返回 base64 同时写入 IndexedDB
-const renderedArt = await page.evaluate(async () => {
+// 优先读取外部真实照片素材（通过 DEMO_ART_DIR 指定，不进仓库），缺失时才回落内置 Canvas 绘制
+const ART_KEYS = ['neon1', 'dawn', 'prod', 'cafe', 'portrait', 'mountain', 'tram', 'botanical']
+const externalPhotos = []
+const demoArtDir = String(process.env.DEMO_ART_DIR || '').trim()
+if (demoArtDir) {
+  for (const key of ART_KEYS) {
+    for (const [ext, mime] of [['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.png', 'image/png'], ['.webp', 'image/webp']]) {
+      try {
+        const buf = await readFile(join(demoArtDir, `${key}${ext}`))
+        externalPhotos.push({ key, mime, dataUrl: `data:${mime};base64,${buf.toString('base64')}` })
+        break
+      } catch { /* 试下一个扩展名 */ }
+    }
+  }
+}
+
+// 2) 将高分辨率摄影实图（或兜底绘制图）规范缩放至合适演示尺寸，写入 IndexedDB 并导出至本地 HTTP 路由
+const renderedArt = await page.evaluate(async (extList) => {
   const mkCanvas = (w, h) => {
     const c = document.createElement('canvas')
     c.width = w
@@ -124,290 +140,40 @@ const renderedArt = await page.evaluate(async () => {
     return [c, c.getContext('2d')]
   }
 
-  const drawNeonNight = (variant = 1) => {
-    const [c, ctx] = mkCanvas(900, 1200)
-    const sky = ctx.createLinearGradient(0, 0, 0, 1200)
-    sky.addColorStop(0, variant === 1 ? '#080e1d' : '#120b24')
-    sky.addColorStop(0.55, variant === 1 ? '#11253a' : '#1c1836')
-    sky.addColorStop(1, '#090d14')
-    ctx.fillStyle = sky
-    ctx.fillRect(0, 0, 900, 1200)
-
-    // 远景薄雾高光
-    const mist = ctx.createRadialGradient(450, 560, 40, 450, 560, 480)
-    mist.addColorStop(0, variant === 1 ? 'rgba(42, 212, 224, 0.38)' : 'rgba(255, 166, 77, 0.34)')
-    mist.addColorStop(0.55, variant === 1 ? 'rgba(232, 74, 148, 0.16)' : 'rgba(94, 129, 255, 0.18)')
-    mist.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = mist
-    ctx.fillRect(0, 0, 900, 1200)
-
-    // 两侧建筑剪影与窗户网格
-    ctx.fillStyle = '#070b12'
-    ctx.beginPath()
-    ctx.moveTo(0, 0); ctx.lineTo(315, 110); ctx.lineTo(340, 820); ctx.lineTo(0, 920); ctx.closePath(); ctx.fill()
-    ctx.beginPath()
-    ctx.moveTo(900, 0); ctx.lineTo(575, 95); ctx.lineTo(555, 810); ctx.lineTo(900, 930); ctx.closePath(); ctx.fill()
-
-    for (let r = 0; r < 11; r += 1) {
-      for (let col = 0; col < 4; col += 1) {
-        if ((r + col) % 3 === 0) continue
-        ctx.fillStyle = (r + col) % 2 === 0 ? 'rgba(255, 200, 120, 0.25)' : 'rgba(92, 225, 230, 0.2)'
-        ctx.fillRect(36 + col * 58, 120 + r * 58, 28, 34)
-        ctx.fillRect(620 + col * 58, 130 + r * 56, 26, 32)
-      }
+  const normalizePhoto = (dataUrl) => new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const maxEdge = 1280
+      const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth || 1, img.naturalHeight || 1))
+      const w = Math.max(1, Math.round(img.naturalWidth * scale))
+      const h = Math.max(1, Math.round(img.naturalHeight * scale))
+      const [c, ctx] = mkCanvas(w, h)
+      ctx.drawImage(img, 0, 0, w, h)
+      c.toBlob((blob) => {
+        if (!blob) { reject(new Error('toBlob failed')); return }
+        const outUrl = c.toDataURL('image/jpeg', 0.92)
+        resolve({ blob, w, h, mime: 'image/jpeg', b64: outUrl.split(',')[1] })
+      }, 'image/jpeg', 0.92)
     }
+    img.onerror = () => reject(new Error('load photo failed'))
+    img.src = dataUrl
+  })
 
-    // 悬空霓虹招牌
-    const signs = variant === 1
-      ? [
-        { x: 165, y: 240, w: 148, h: 66, fg: '#2ee6ff', glow: 'rgba(46, 230, 255, 0.7)' },
-        { x: 560, y: 210, w: 160, h: 72, fg: '#ff4f9a', glow: 'rgba(255, 79, 154, 0.7)' },
-        { x: 205, y: 390, w: 118, h: 52, fg: '#ffb547', glow: 'rgba(255, 181, 71, 0.65)' },
-        { x: 535, y: 365, w: 140, h: 56, fg: '#39f0c8', glow: 'rgba(57, 240, 200, 0.65)' },
-      ]
-      : [
-        { x: 180, y: 210, w: 150, h: 68, fg: '#ffa940', glow: 'rgba(255, 169, 64, 0.7)' },
-        { x: 540, y: 250, w: 164, h: 64, fg: '#5b8cff', glow: 'rgba(91, 140, 255, 0.7)' },
-        { x: 220, y: 380, w: 120, h: 54, fg: '#ff5d8f', glow: 'rgba(255, 93, 143, 0.65)' },
-      ]
-    for (const s of signs) {
-      ctx.save()
-      ctx.shadowColor = s.glow
-      ctx.shadowBlur = 28
-      ctx.strokeStyle = s.fg
-      ctx.lineWidth = 4
-      ctx.fillStyle = 'rgba(10, 14, 24, 0.86)'
-      ctx.beginPath()
-      ctx.roundRect(s.x, s.y, s.w, s.h, 10)
-      ctx.fill()
-      ctx.stroke()
-      ctx.fillStyle = s.fg
-      ctx.fillRect(s.x + 18, s.y + 20, s.w - 36, 8)
-      ctx.fillRect(s.x + 18, s.y + 38, (s.w - 36) * 0.65, 6)
-      ctx.restore()
-    }
-
-    // 湿润地面反光条带
-    const floor = ctx.createLinearGradient(0, 760, 0, 1200)
-    floor.addColorStop(0, '#0a121f')
-    floor.addColorStop(1, '#05080f')
-    ctx.fillStyle = floor
-    ctx.fillRect(0, 760, 900, 440)
-    for (let i = 0; i < 42; i += 1) {
-      const rx = 250 + ((i * 73) % 410)
-      const ry = 785 + i * 9.5
-      const rw = 24 + ((i * 19) % 80)
-      ctx.fillStyle = i % 3 === 0 ? 'rgba(46, 230, 255, 0.24)' : i % 3 === 1 ? 'rgba(255, 79, 154, 0.22)' : 'rgba(255, 184, 77, 0.20)'
-      ctx.fillRect(rx - rw / 2, ry, rw, 4)
-    }
-
-    // 近景行人 + 伞剪影
-    ctx.save()
-    ctx.fillStyle = '#090c13'
-    ctx.beginPath()
-    ctx.ellipse(455, 910, 24, 110, 0, 0, Math.PI * 2)
-    ctx.fill()
-    const umb = ctx.createRadialGradient(455, 770, 10, 455, 790, 96)
-    umb.addColorStop(0, variant === 1 ? 'rgba(69, 238, 255, 0.92)' : 'rgba(255, 193, 94, 0.95)')
-    umb.addColorStop(1, 'rgba(18, 32, 54, 0.88)')
-    ctx.fillStyle = umb
-    ctx.beginPath()
-    ctx.arc(455, 815, 92, Math.PI, 0)
-    ctx.closePath()
-    ctx.fill()
-    ctx.restore()
-
-    // 细雨雨丝
-    ctx.strokeStyle = 'rgba(190, 235, 255, 0.16)'
-    ctx.lineWidth = 1.5
-    for (let i = 0; i < 120; i += 1) {
-      const x = (i * 97) % 900
-      const y = (i * 173) % 1160
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 10, y + 36); ctx.stroke()
-    }
+  const drawFallback = (key) => {
+    const isVert = ['neon1', 'dawn', 'mountain'].includes(key)
+    const isSq = key === 'prod'
+    const [w, h] = isSq ? [1024, 1024] : isVert ? [900, 1200] : [1200, 900]
+    const [c, ctx] = mkCanvas(w, h)
+    const g = ctx.createLinearGradient(0, 0, w, h)
+    g.addColorStop(0, '#1c2432')
+    g.addColorStop(1, '#3b4d63')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, h)
     return c
   }
 
-  const drawDawnStreet = () => {
-    const [c, ctx] = mkCanvas(900, 1200)
-    const sky = ctx.createLinearGradient(0, 0, 0, 1200)
-    sky.addColorStop(0, '#3e5370')
-    sky.addColorStop(0.45, '#e8a87c')
-    sky.addColorStop(0.72, '#ffd699')
-    sky.addColorStop(1, '#26303d')
-    ctx.fillStyle = sky
-    ctx.fillRect(0, 0, 900, 1200)
-
-    const sun = ctx.createRadialGradient(450, 620, 20, 450, 620, 380)
-    sun.addColorStop(0, 'rgba(255, 248, 224, 0.96)')
-    sun.addColorStop(0.4, 'rgba(255, 198, 122, 0.52)')
-    sun.addColorStop(1, 'rgba(255, 198, 122, 0)')
-    ctx.fillStyle = sun
-    ctx.fillRect(0, 0, 900, 1200)
-
-    // 晨曦建筑轮廓
-    ctx.fillStyle = 'rgba(35, 44, 58, 0.9)'
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(310, 140); ctx.lineTo(340, 810); ctx.lineTo(0, 900); ctx.closePath(); ctx.fill()
-    ctx.beginPath(); ctx.moveTo(900, 0); ctx.lineTo(585, 130); ctx.lineTo(560, 810); ctx.lineTo(900, 910); ctx.closePath(); ctx.fill()
-
-    // 丁达尔光束
-    ctx.fillStyle = 'rgba(255, 241, 205, 0.16)'
-    ctx.beginPath(); ctx.moveTo(420, 600); ctx.lineTo(140, 1200); ctx.lineTo(390, 1200); ctx.closePath(); ctx.fill()
-    ctx.beginPath(); ctx.moveTo(470, 600); ctx.lineTo(560, 1200); ctx.lineTo(780, 1200); ctx.closePath(); ctx.fill()
-
-    // 雨后积水反光
-    const wet = ctx.createLinearGradient(0, 800, 0, 1200)
-    wet.addColorStop(0, 'rgba(65, 76, 94, 0.85)')
-    wet.addColorStop(1, 'rgba(25, 31, 42, 0.96)')
-    ctx.fillStyle = wet
-    ctx.fillRect(0, 800, 900, 400)
-    const ref = ctx.createRadialGradient(450, 960, 15, 450, 960, 210)
-    ref.addColorStop(0, 'rgba(255, 224, 165, 0.72)')
-    ref.addColorStop(1, 'rgba(255, 224, 165, 0)')
-    ctx.fillStyle = ref
-    ctx.fillRect(150, 810, 600, 340)
-    return c
-  }
-
-  const drawProductStudio = () => {
-    const [c, ctx] = mkCanvas(1024, 1024)
-    const bg = ctx.createLinearGradient(0, 0, 1024, 1024)
-    bg.addColorStop(0, '#f3efe9')
-    bg.addColorStop(1, '#ddd4c7')
-    ctx.fillStyle = bg
-    ctx.fillRect(0, 0, 1024, 1024)
-
-    // 柔光圈
-    const glow = ctx.createRadialGradient(512, 430, 40, 512, 430, 420)
-    glow.addColorStop(0, 'rgba(255, 255, 255, 0.95)')
-    glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
-    ctx.fillStyle = glow
-    ctx.fillRect(0, 0, 1024, 1024)
-
-    // 石膏台座
-    ctx.fillStyle = '#c8beb0'
-    ctx.beginPath(); ctx.roundRect(220, 700, 584, 240, 18); ctx.fill()
-    ctx.fillStyle = '#e5ddd1'
-    ctx.beginPath(); ctx.roundRect(220, 690, 584, 58, 12); ctx.fill()
-
-    // 接触投影
-    const sh = ctx.createRadialGradient(512, 718, 20, 512, 718, 180)
-    sh.addColorStop(0, 'rgba(60, 52, 44, 0.34)')
-    sh.addColorStop(1, 'rgba(60, 52, 44, 0)')
-    ctx.fillStyle = sh
-    ctx.fillRect(280, 660, 464, 120)
-
-    // 磨砂玻璃香水瓶身
-    const glass = ctx.createLinearGradient(362, 310, 662, 710)
-    glass.addColorStop(0, '#f8e6d2')
-    glass.addColorStop(0.5, '#dfb58c')
-    glass.addColorStop(1, '#c38b5d')
-    ctx.fillStyle = glass
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-    ctx.lineWidth = 4
-    ctx.beginPath(); ctx.roundRect(362, 310, 300, 400, 36); ctx.fill(); ctx.stroke()
-    // 内液面
-    ctx.fillStyle = 'rgba(255, 248, 238, 0.42)'
-    ctx.beginPath(); ctx.roundRect(386, 336, 92, 348, 20); ctx.fill()
-    // 金属瓶颈与黑曜石瓶盖
-    ctx.fillStyle = '#b49468'
-    ctx.fillRect(466, 260, 92, 52)
-    ctx.fillStyle = '#1f2228'
-    ctx.beginPath(); ctx.roundRect(432, 168, 160, 98, 18); ctx.fill()
-    // 极简标签
-    ctx.fillStyle = 'rgba(252, 250, 246, 0.92)'
-    ctx.beginPath(); ctx.roundRect(422, 440, 180, 120, 10); ctx.fill()
-    ctx.fillStyle = '#2d2926'
-    ctx.fillRect(458, 484, 108, 10)
-    ctx.fillStyle = '#8b7f74'
-    ctx.fillRect(474, 510, 76, 6)
-    return c
-  }
-
-  const drawInkMountain = () => {
-    const [c, ctx] = mkCanvas(900, 1200)
-    const paper = ctx.createLinearGradient(0, 0, 0, 1200)
-    paper.addColorStop(0, '#ece4d3')
-    paper.addColorStop(1, '#dcd0b8')
-    ctx.fillStyle = paper
-    ctx.fillRect(0, 0, 900, 1200)
-
-    // 朱红落日
-    ctx.fillStyle = 'rgba(196, 68, 52, 0.85)'
-    ctx.beginPath(); ctx.arc(620, 290, 56, 0, Math.PI * 2); ctx.fill()
-
-    const drawPeak = (points, color) => {
-      ctx.fillStyle = color
-      ctx.beginPath()
-      ctx.moveTo(0, 1200)
-      for (const [x, y] of points) ctx.lineTo(x, y)
-      ctx.lineTo(900, 1200)
-      ctx.closePath()
-      ctx.fill()
-    }
-    drawPeak([[0, 540], [180, 390], [360, 490], [560, 320], [740, 460], [900, 380]], 'rgba(92, 100, 108, 0.32)')
-    drawPeak([[0, 720], [210, 520], [430, 650], [670, 470], [900, 620]], 'rgba(54, 60, 68, 0.56)')
-    drawPeak([[0, 920], [170, 740], [350, 860], [580, 780], [900, 880]], 'rgba(24, 28, 34, 0.84)')
-
-    // 留白江雾
-    const fog = ctx.createLinearGradient(0, 720, 0, 1020)
-    fog.addColorStop(0, 'rgba(236, 228, 211, 0)')
-    fog.addColorStop(0.5, 'rgba(240, 234, 220, 0.82)')
-    fog.addColorStop(1, 'rgba(236, 228, 211, 0)')
-    ctx.fillStyle = fog
-    ctx.fillRect(0, 720, 900, 300)
-
-    // 一叶孤舟
-    ctx.fillStyle = '#1b1d20'
-    ctx.beginPath(); ctx.moveTo(410, 955); ctx.quadraticCurveTo(465, 976, 520, 952); ctx.closePath(); ctx.fill()
-    ctx.fillRect(454, 932, 12, 22)
-    return c
-  }
-
-  const drawIsometricRoom = () => {
-    const [c, ctx] = mkCanvas(1024, 1024)
-    const bg = ctx.createLinearGradient(0, 0, 1024, 1024)
-    bg.addColorStop(0, '#dce7f5')
-    bg.addColorStop(1, '#c5d6ec')
-    ctx.fillStyle = bg
-    ctx.fillRect(0, 0, 1024, 1024)
-
-    // 等距地板与两面墙
-    ctx.fillStyle = '#f6f1e9'
-    ctx.beginPath(); ctx.moveTo(512, 190); ctx.lineTo(180, 380); ctx.lineTo(180, 680); ctx.lineTo(512, 490); ctx.closePath(); ctx.fill()
-    ctx.fillStyle = '#e7dfd3'
-    ctx.beginPath(); ctx.moveTo(512, 190); ctx.lineTo(844, 380); ctx.lineTo(844, 680); ctx.lineTo(512, 490); ctx.closePath(); ctx.fill()
-    ctx.fillStyle = '#d3b08c'
-    ctx.beginPath(); ctx.moveTo(512, 490); ctx.lineTo(844, 680); ctx.lineTo(512, 870); ctx.lineTo(180, 680); ctx.closePath(); ctx.fill()
-
-    // 窗户暖光
-    ctx.fillStyle = '#ffe5b0'
-    ctx.beginPath(); ctx.moveTo(250, 390); ctx.lineTo(420, 290); ctx.lineTo(420, 445); ctx.lineTo(250, 545); ctx.closePath(); ctx.fill()
-
-    // 书桌与显示器
-    ctx.fillStyle = '#ffffff'
-    ctx.beginPath(); ctx.roundRect(450, 520, 220, 120, 14); ctx.fill()
-    ctx.fillStyle = '#252b38'
-    ctx.beginPath(); ctx.roundRect(505, 435, 118, 76, 10); ctx.fill()
-    ctx.fillStyle = '#5596ff'
-    ctx.beginPath(); ctx.roundRect(514, 444, 100, 58, 6); ctx.fill()
-
-    // 绿植圆罐
-    ctx.fillStyle = '#5a8f69'
-    ctx.beginPath(); ctx.arc(325, 625, 44, 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = '#e27d5f'
-    ctx.beginPath(); ctx.roundRect(300, 650, 50, 42, 8); ctx.fill()
-    return c
-  }
-
-  const specs = [
-    { key: 'neon1', storageKey: 'image:shot_neon1', canvas: drawNeonNight(1) },
-    { key: 'neon2', storageKey: 'image:shot_neon2', canvas: drawNeonNight(2) },
-    { key: 'dawn', storageKey: 'image:shot_dawn', canvas: drawDawnStreet() },
-    { key: 'prod', storageKey: 'image:shot_prod', canvas: drawProductStudio() },
-    { key: 'ink', storageKey: 'image:shot_ink', canvas: drawInkMountain() },
-    { key: 'iso', storageKey: 'image:shot_iso', canvas: drawIsometricRoom() },
-  ]
+  const extMap = Object.fromEntries((extList || []).map((x) => [x.key, x]))
+  const keys = ['neon1', 'dawn', 'prod', 'cafe', 'portrait', 'mountain', 'tram', 'botanical']
 
   const db = await new Promise((resolve, reject) => {
     const req = indexedDB.open('dsh-chunfeng-image', 1)
@@ -417,30 +183,32 @@ const renderedArt = await page.evaluate(async () => {
 
   const exported = []
   const now = Date.now()
-  for (const sp of specs) {
-    const blob = await new Promise((r) => sp.canvas.toBlob(r, 'image/png'))
-    const dataUrl = sp.canvas.toDataURL('image/png')
+  for (const key of keys) {
+    const storageKey = `image:shot_${key}`
+    let blob, width, height, mime, b64
+    if (extMap[key]) {
+      const out = await normalizePhoto(extMap[key].dataUrl)
+      blob = out.blob; width = out.w; height = out.h; mime = out.mime; b64 = out.b64
+    } else {
+      const canvas = drawFallback(key)
+      blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.9))
+      width = canvas.width; height = canvas.height; mime = 'image/jpeg'
+      b64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+    }
     await new Promise((resolve, reject) => {
       const tx = db.transaction('image_files', 'readwrite')
-      tx.objectStore('image_files').put({
-        blob,
-        type: 'image/png',
-        bytes: blob.size,
-        width: sp.canvas.width,
-        height: sp.canvas.height,
-        at: now,
-      }, sp.storageKey)
+      tx.objectStore('image_files').put({ blob, type: mime, bytes: blob.size, width, height, at: now }, storageKey)
       tx.oncomplete = resolve
       tx.onerror = () => reject(tx.error)
     })
-    exported.push({ key: sp.key, storageKey: sp.storageKey, bytes: blob.size, width: sp.canvas.width, height: sp.canvas.height, b64: dataUrl.split(',')[1] })
+    exported.push({ key, storageKey, mimeType: mime, bytes: blob.size, width, height, b64 })
   }
   db.close()
   return exported
-})
+}, externalPhotos)
 
 for (const art of renderedArt) {
-  demoArtBuffers.set(art.key, Buffer.from(art.b64, 'base64'))
+  demoArtBuffers.set(art.key, { mimeType: art.mimeType, buffer: Buffer.from(art.b64, 'base64') })
 }
 
 // 3) 注入 5 个展示场景共享的演示配置、画布、提示词源与工作台记录
@@ -570,9 +338,9 @@ await page.evaluate(async ({ baseUrl, arts }) => {
         storageKey: byKey.neon1.storageKey,
         primaryImageId: 'img_n1',
         images: [
-          imgEntry('img_n1', byKey.neon1, '雨夜香港霓虹深巷 · 青蓝方案'),
-          imgEntry('img_n2', byKey.neon2, '雨夜电车霓虹桥 · 琥珀方案'),
-          imgEntry('img_n3', byKey.dawn, '雨后晨曦街角 · 金光对比'),
+          imgEntry('img_n1', byKey.neon1, '香港雨夜霓虹深巷街拍 · 青橙方案'),
+          imgEntry('img_n2', byKey.tram, '港岛雨夜复古电车抓拍 · 暖光方案'),
+          imgEntry('img_n3', byKey.dawn, '雨后老街破晓晨光 · 对比方案'),
         ],
       },
       {
@@ -588,10 +356,10 @@ await page.evaluate(async ({ baseUrl, arts }) => {
         ratio: '3:4',
         resolution: '2k',
         locked: true,
-        prompt: '同一街角的清晨，雨停后的暖色丁达尔光与水洼倒影',
+        prompt: '雨后老街破晓晨光，湿润石板路与暖色晨雾倒影',
         storageKey: byKey.dawn.storageKey,
         primaryImageId: 'img_d1',
-        images: [imgEntry('img_d1', byKey.dawn, '同一街角的清晨，雨停后的暖色丁达尔光与水洼倒影')],
+        images: [imgEntry('img_d1', byKey.dawn, '雨后老街破晓晨光，湿润石板路与暖色晨雾倒影')],
       },
       {
         id: 'i_prod',
@@ -600,16 +368,16 @@ await page.evaluate(async ({ baseUrl, arts }) => {
         y: 230,
         w: 268,
         h: 296,
-        name: '衍生 · 商业静物海报',
+        name: '衍生 · 商业静物摄影',
         status: 'done',
         z: 2,
         ratio: '1:1',
         resolution: '2k',
         locked: true,
-        prompt: '保持暖调高光质感，磨砂玻璃香水瓶与石膏台座商业特写',
+        prompt: '洞石台面磨砂琥珀香水瓶商业棚拍，自然晨光树影投射在微水泥墙面',
         storageKey: byKey.prod.storageKey,
         primaryImageId: 'img_p1',
-        images: [imgEntry('img_p1', byKey.prod, '保持暖调高光质感，磨砂玻璃香水瓶与石膏台座商业特写')],
+        images: [imgEntry('img_p1', byKey.prod, '洞石台面磨砂琥珀香水瓶商业棚拍，自然晨光树影投射在微水泥墙面')],
       },
     ],
     edges: [
@@ -623,99 +391,99 @@ await page.evaluate(async ({ baseUrl, arts }) => {
   const promptItems = [
     {
       id: 'pr_1',
-      title: '雨夜香港霓虹深巷',
-      text: '低角度超广角街拍，雨夜香港霓虹深巷，青蓝与洋红招牌冷暖对比，湿润石板路倒映细碎霓虹，前景撑透明雨伞的行人背影，35mm 电影胶片颗粒。',
-      category: '赛博夜景',
-      tags: ['霓虹', '雨夜', '电影感'],
+      title: '香港雨夜霓虹街巷纪实',
+      text: 'Leica 35mm 纪实夜拍，香港窄巷雨夜，青蓝与洋红老式霓虹招牌在湿润柏油路面拉出色彩倒影，前景风衣旅人撑透明雨伞背影。',
+      category: '街头纪实',
+      tags: ['35mm胶片', '雨夜', '香港街拍'],
       author: 'YukkCat',
-      coverUrl: `${baseUrl}/demo-art/neon1.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/neon1.png`, `${baseUrl}/demo-art/neon2.png`],
+      coverUrl: `${baseUrl}/demo-art/neon1.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/neon1.jpg`, `${baseUrl}/demo-art/tram.jpg`],
       sourceId: 'awesome-gpt-image',
       sourceName: 'Awesome GPT Image',
     },
     {
       id: 'pr_2',
-      title: '极简磨砂香水商业静物',
-      text: '极简商业摄影，磨砂琥珀色玻璃香水瓶置于浅灰石膏几何台座，柔光箱侧逆光打亮瓶身通透边缘，干净高级米白色影棚背景。',
-      category: '商业摄影',
-      tags: ['产品', '极简', '棚拍'],
+      title: '午后雨窗手冲咖啡静物',
+      text: '自然光生活摄影，雨珠挂满玻璃的窗边原木桌面，手冲陶瓷滤杯腾起细腻热气，粗陶咖啡杯与亚麻笔记本沐浴在午后暖阳里。',
+      category: '生活静物',
+      tags: ['自然光', '咖啡', '日系胶片'],
       author: 'YouMind',
-      coverUrl: `${baseUrl}/demo-art/prod.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/prod.png`, `${baseUrl}/demo-art/iso.png`],
+      coverUrl: `${baseUrl}/demo-art/cafe.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/cafe.jpg`, `${baseUrl}/demo-art/botanical.jpg`],
       sourceId: 'youmind-gpt-image-2',
       sourceName: 'YouMind GPT Image 2',
     },
     {
       id: 'pr_3',
-      title: '水墨留白远山孤舟',
-      text: '东方意境水墨山水，宣纸纹理，远山层峦叠嶂淡墨晕染，朱红落日点缀天际，江雾留白间一叶孤舟随波停泊。',
-      category: '国风山水',
-      tags: ['水墨', '留白', '国风'],
-      author: 'Quicker',
-      coverUrl: `${baseUrl}/demo-art/ink.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/ink.png`],
+      title: '雨后老街破晓丁达尔晨光',
+      text: 'Fujifilm Pro 400H 纪实摄影，雨后清晨寂静的旧城老巷，金橘色朝阳穿透晨雾照亮阳台绿植，湿润石板路倒映柔蓝天色。',
+      category: '城市风光',
+      tags: ['晨雾', '逆光', '石板路'],
+      author: 'DavidWu',
+      coverUrl: `${baseUrl}/demo-art/dawn.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/dawn.jpg`, `${baseUrl}/demo-art/neon1.jpg`],
+      sourceId: 'awesome-gpt-image',
+      sourceName: 'Awesome GPT Image',
+    },
+    {
+      id: 'pr_4',
+      title: '陶艺工坊自然光环境人像',
+      text: 'Kodak Portra 400 纪实环境人像，穿着亚麻围裙的年轻东亚陶艺师在阳光工作坊拉坯塑形，柔和侧逆窗光与虚化陶器货架。',
+      category: '纪实人像',
+      tags: ['Portra400', '手工艺', '侧逆光'],
+      author: 'Freestylefly',
+      coverUrl: `${baseUrl}/demo-art/portrait.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/portrait.jpg`],
+      sourceId: 'youmind-gpt-image-2',
+      sourceName: 'YouMind GPT Image 2',
+    },
+    {
+      id: 'pr_5',
+      title: '洞石台面琥珀香水商业棚拍',
+      text: '哈苏中画幅极简商业静物，无标磨砂琥珀玻璃香水瓶稳立于多孔洞石台座，清晨自然日光将橄榄叶柔影投在微水泥墙面。',
+      category: '商业摄影',
+      tags: ['产品静物', '光影', '哈苏中画幅'],
+      author: 'Studio',
+      coverUrl: `${baseUrl}/demo-art/prod.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/prod.jpg`, `${baseUrl}/demo-art/botanical.jpg`],
       sourceId: 'banana-prompt-quicker',
       sourceName: 'Banana Prompt Quicker',
     },
     {
-      id: 'pr_4',
-      title: '3D 等距温暖设计师工作间',
-      text: '3D 等距微缩工作室场景，阳光透过窗棂洒在木质地板上，极简白书桌与双屏显示器，角落龟背竹绿植，Blender Cycles 柔和全局光照。',
-      category: '3D 等距',
-      tags: ['等距', '微缩', '治愈'],
-      author: 'Freestylefly',
-      coverUrl: `${baseUrl}/demo-art/iso.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/iso.png`, `${baseUrl}/demo-art/prod.png`],
-      sourceId: 'freestylefly-gpt-image-2',
-      sourceName: 'Freestylefly GPT Image 2',
-    },
-    {
-      id: 'pr_5',
-      title: '雨后晨曦丁达尔街道',
-      text: '电影感清晨转场画面，暴雨初歇的旧城深巷，金橘色朝阳穿透云层形成柔和丁达尔光束，积水路面清晰倒映天空霞光。',
-      category: '电影转场',
-      tags: ['晨光', '丁达尔', '倒影'],
-      author: 'DavidWu',
-      coverUrl: `${baseUrl}/demo-art/dawn.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/dawn.png`, `${baseUrl}/demo-art/neon1.png`],
-      sourceId: 'davidwu-gpt-image2-prompts',
-      sourceName: 'DavidWu GPT Image 2',
-    },
-    {
       id: 'pr_6',
-      title: '复古电车霓虹天桥夜色',
-      text: '琥珀与钴蓝双色夜景构图，复古有轨电车穿过高架霓虹天桥，前景失焦光斑虚化，强烈纵深透视感。',
-      category: '赛博夜景',
-      tags: ['电车', '光斑', '透视'],
-      author: 'GPT4o Hub',
-      coverUrl: `${baseUrl}/demo-art/neon2.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/neon2.png`, `${baseUrl}/demo-art/dawn.png`],
-      sourceId: 'awesome-gpt4o-image-prompts',
-      sourceName: 'Awesome GPT-4o',
+      title: '侘寂风日光原木室内一角',
+      text: '室内空间自然采光实拍，微水泥白墙搭配原木躺椅与亚麻软垫，手工陶罐插着新鲜橄榄枝，在橡木地板留下斑驳午后日影。',
+      category: '空间摄影',
+      tags: ['微水泥', '自然采光', '家居'],
+      author: 'NanoBanana',
+      coverUrl: `${baseUrl}/demo-art/botanical.jpg`,
+      referenceImageUrls: [],
+      sourceId: 'banana-prompt-quicker',
+      sourceName: 'Banana Prompt Quicker',
     },
     {
       id: 'pr_7',
-      title: '高级护肤品石膏礼盒陈列',
-      text: 'Studio 静物构图，哑光质感包装与琥珀玻璃瓶对称陈列，自然窗光与柔光板勾勒立体轮廓阴影，高阶审美电商主图。',
-      category: '商业摄影',
-      tags: ['电商', '静物', '高级感'],
-      author: 'NanoBanana',
-      coverUrl: `${baseUrl}/demo-art/prod.png`,
-      referenceImageUrls: [],
-      sourceId: 'youmind-nano-banana-pro',
-      sourceName: 'YouMind Nano Banana Pro',
+      title: '港岛雨夜复古电车抓拍',
+      text: '雨夜 35mm 街头抓拍，老式绿色双层有轨电车暖黄车灯穿透雨幕驶过街口，隔着挂满雨滴的车窗捕捉铁轨高光反射。',
+      category: '街头纪实',
+      tags: ['电车', '雨夜', '抓拍'],
+      author: 'GPT4o Hub',
+      coverUrl: `${baseUrl}/demo-art/tram.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/tram.jpg`],
+      sourceId: 'awesome-gpt-image',
+      sourceName: 'Awesome GPT Image',
     },
     {
       id: 'pr_8',
-      title: '日系清新室内工作角插画',
-      text: '干净柔和的明快色调，木质原色工作台搭配绿色盆栽，午后自然漫反射光影，适合作为应用启动插画或桌面壁纸。',
-      category: '3D 等距',
-      tags: ['室内', '清新', '插画'],
-      author: 'Studio',
-      coverUrl: `${baseUrl}/demo-art/iso.png`,
-      referenceImageUrls: [`${baseUrl}/demo-art/iso.png`],
-      sourceId: 'awesome-gpt-image',
-      sourceName: 'Awesome GPT Image',
+      title: '漓江晨雾喀斯特山水实景',
+      text: '长焦压缩感自然风光摄影，破晓时分漓江如镜的深碧水面漂浮一叶旧竹筏，喀斯特峰林掩映在层叠山谷晨雾之中。',
+      category: '城市风光',
+      tags: ['漓江', '晨雾', '自然风光'],
+      author: 'Quicker',
+      coverUrl: `${baseUrl}/demo-art/mountain.jpg`,
+      referenceImageUrls: [`${baseUrl}/demo-art/mountain.jpg`],
+      sourceId: 'youmind-gpt-image-2',
+      sourceName: 'YouMind GPT Image 2',
     },
   ]
 
@@ -756,7 +524,7 @@ await page.evaluate(async ({ baseUrl, arts }) => {
   const logs = [
     {
       id: 'rec_1',
-      prompt: '极简商业摄影，磨砂琥珀玻璃香水瓶置于浅灰石膏台座，柔和侧逆光打亮轮廓，米白色高级影棚背景',
+      prompt: '极简商业静物摄影，磨砂琥珀玻璃香水瓶置于天然洞石台面，晨光橄榄叶影投射在微水泥墙面，哈苏中画幅实拍',
       modelKey: 'ch_openai:seedream-5-pro',
       modelLabel: 'Seedream 5.0 Pro',
       ratio: '1:1',
@@ -767,41 +535,41 @@ await page.evaluate(async ({ baseUrl, arts }) => {
       at: now - 180000,
       elapsedMs: 4200,
       images: [
-        { storageKey: byKey.prod.storageKey, width: byKey.prod.width, height: byKey.prod.height, bytes: byKey.prod.bytes, mimeType: 'image/png', index: 0, status: 'done' },
-        { storageKey: byKey.iso.storageKey, width: byKey.iso.width, height: byKey.iso.height, bytes: byKey.iso.bytes, mimeType: 'image/png', index: 1, status: 'done' },
+        { storageKey: byKey.prod.storageKey, width: byKey.prod.width, height: byKey.prod.height, bytes: byKey.prod.bytes, mimeType: byKey.prod.mimeType, index: 0, status: 'done' },
+        { storageKey: byKey.botanical.storageKey, width: byKey.botanical.width, height: byKey.botanical.height, bytes: byKey.botanical.bytes, mimeType: byKey.botanical.mimeType, index: 1, status: 'done' },
       ],
     },
     {
       id: 'rec_2',
-      prompt: '雨夜香港霓虹深巷，青橙冷暖对比，湿润路面倒映细碎招牌灯光，电影胶片质感',
+      prompt: '午后雨窗边原木咖啡桌，手冲陶瓷滤杯微冒热气，窗玻璃挂着细碎雨珠，50mm f/1.8 自然光生活纪实',
       modelKey: 'ch_gemini:gemini-2.5-flash-image',
       modelLabel: 'Gemini 2.5 Flash Image',
-      ratio: '3:4',
+      ratio: '4:3',
       resolution: '2k',
-      size: '864×1152',
+      size: '1152×864',
       count: 2,
       status: 'done',
       at: now - 620000,
       elapsedMs: 5600,
       images: [
-        { storageKey: byKey.neon1.storageKey, width: byKey.neon1.width, height: byKey.neon1.height, bytes: byKey.neon1.bytes, mimeType: 'image/png', index: 0, status: 'done' },
-        { storageKey: byKey.dawn.storageKey, width: byKey.dawn.width, height: byKey.dawn.height, bytes: byKey.dawn.bytes, mimeType: 'image/png', index: 1, status: 'done' },
+        { storageKey: byKey.cafe.storageKey, width: byKey.cafe.width, height: byKey.cafe.height, bytes: byKey.cafe.bytes, mimeType: byKey.cafe.mimeType, index: 0, status: 'done' },
+        { storageKey: byKey.portrait.storageKey, width: byKey.portrait.width, height: byKey.portrait.height, bytes: byKey.portrait.bytes, mimeType: byKey.portrait.mimeType, index: 1, status: 'done' },
       ],
     },
     {
       id: 'rec_3',
-      prompt: '水墨留白远山淡墨晕染，朱红落日点缀天际，江雾之间一叶孤舟',
+      prompt: '桂林漓江破晓实景风光，喀斯特峰林掩映在层叠山谷晨雾之中，镜面江水一叶旧竹筏轻泛',
       modelKey: 'ch_openai:gpt-image-1',
       modelLabel: 'GPT Image 1',
       ratio: '3:4',
-      resolution: '1k',
-      size: '768×1024',
+      resolution: '2k',
+      size: '864×1152',
       count: 1,
       status: 'done',
       at: now - 1200000,
       elapsedMs: 3800,
       images: [
-        { storageKey: byKey.ink.storageKey, width: byKey.ink.width, height: byKey.ink.height, bytes: byKey.ink.bytes, mimeType: 'image/png', index: 0, status: 'done' },
+        { storageKey: byKey.mountain.storageKey, width: byKey.mountain.width, height: byKey.mountain.height, bytes: byKey.mountain.bytes, mimeType: byKey.mountain.mimeType, index: 0, status: 'done' },
       ],
     },
   ]
@@ -886,16 +654,16 @@ const maskBox = await page.evaluate(() => {
   const r = document.querySelector('.cf-mask-box').getBoundingClientRect()
   return { x: r.x, y: r.y, w: r.width, h: r.height }
 })
-await page.mouse.move(maskBox.x + maskBox.w * 0.34, maskBox.y + maskBox.h * 0.62)
+await page.mouse.move(maskBox.x + maskBox.w * 0.43, maskBox.y + maskBox.h * 0.525)
 await page.mouse.down()
-await page.mouse.move(maskBox.x + maskBox.w * 0.66, maskBox.y + maskBox.h * 0.64, { steps: 14 })
-await page.mouse.move(maskBox.x + maskBox.w * 0.50, maskBox.y + maskBox.h * 0.54, { steps: 10 })
+await page.mouse.move(maskBox.x + maskBox.w * 0.61, maskBox.y + maskBox.h * 0.525, { steps: 14 })
+await page.mouse.move(maskBox.x + maskBox.w * 0.52, maskBox.y + maskBox.h * 0.495, { steps: 10 })
 await page.mouse.up()
 await page.evaluate(() => {
   const inp = document.querySelector('.cf-dialog .cf-input')
   if (!inp) return
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-  setter.call(inp, '将涂抹区域替换为一把温暖发光的琥珀色透明雨伞，保留地面水洼倒影')
+  setter.call(inp, '将透明雨伞替换为温暖发光的复古琥珀色油纸伞，保留雨夜地面反光')
   inp.dispatchEvent(new Event('input', { bubbles: true }))
 })
 await wait(page, 250)
@@ -934,7 +702,7 @@ await page.evaluate(async () => {
   const ta = document.querySelector('.cf-studio .cf-input--area')
   if (ta) {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
-    setter.call(ta, '极简商业摄影，磨砂琥珀玻璃香水瓶置于浅灰石膏台座，柔和侧逆光打亮轮廓，米白色高级影棚背景')
+    setter.call(ta, '极简商业静物摄影，磨砂琥珀玻璃香水瓶置于天然洞石台面，晨光橄榄叶影投射在微水泥墙面，哈苏中画幅实拍')
     ta.dispatchEvent(new Event('input', { bubbles: true }))
   }
 })
