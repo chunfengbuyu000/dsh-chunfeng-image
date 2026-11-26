@@ -54,25 +54,77 @@
 
 ![多协议渠道与来源管理](./assets/screenshots/05-config-dark.webp)
 
-## 环境要求与安装
+## 安装与卸载
 
 - **Node.js**：`>= 20`
-- **DSH**：`>= 0.2.1-rc.5 < 0.3.0`
+- **DSH（DeepSeek Harness）**：`>= 0.2.1-rc.5 < 0.3.0`（支持桌面版 `desktop` 与网页版 `web`）
 
-### 在 DSH 中安装使用
+### 方式一：发给 Agent 自动安装（推荐）
 
-1. 克隆仓库并构建客户端产物：
+把下面这段话直接发给 DeepSeek 或其他可执行本地命令的 Agent：
+
+```text
+请帮我把春风画布插件（https://github.com/chunfengbuyu000/dsh-chunfeng-image.git ，包名 dsh-chunfeng-image）安装到我本机的 DSH（DeepSeek Harness）中：
+1. 先定位本机 dsh 命令（PATH 中的 dsh 或 ~/.dsh/bin/dsh），并检查 ~/.dsh/profiles/ 下当前在用的 profile（桌面版一般为 desktop，网页版一般为 web；若两者都在用请都安装）。
+2. 执行 `dsh plugin --profile <profile> add github:chunfengbuyu000/dsh-chunfeng-image` 安装插件；如果 GitHub 直连拉包较慢或失败，请将仓库 clone 到 `~/.dsh/plugins-src/dsh-chunfeng-image`（确认 `dist/client.js` 存在，缺失则执行 `npm install && npm run build`），再运行 `dsh plugin --profile <profile> add "file:$HOME/.dsh/plugins-src/dsh-chunfeng-image"`。
+3. 检查 `~/.dsh/profiles/<profile>/package.json`：确认 `dependencies` 中已有 `"dsh-chunfeng-image"`，并确认 `dsh.profile.bundles` 数组中包含 `"dsh-chunfeng-image"`（若未自动写入，请在不改动其他条目的前提下把它追加进 `bundles` 数组）。
+4. 校验安装目录中的 `src/host.js` 与 `dist/client.js` 均存在，最后提示我重启 DSH（桌面版完全退出重开，网页版重启 `dsh web`）使插件生效。
+```
+
+### 方式二：命令行手动安装
+
+#### 直接从 GitHub 安装（仓库已内置预构建产物 `dist/client.js`）
+
+```bash
+# DSH 桌面版（默认 profile 为 desktop；若终端找不到 dsh，请使用 ~/.dsh/bin/dsh）
+dsh plugin --profile desktop add github:chunfengbuyu000/dsh-chunfeng-image
+
+# DSH 网页版（profile 为 web）
+dsh plugin --profile web add github:chunfengbuyu000/dsh-chunfeng-image
+```
+
+安装完成后，检查 `~/.dsh/profiles/<desktop|web>/package.json` 中的 `dsh.profile.bundles` 数组是否已包含 `"dsh-chunfeng-image"`（如未自动加入请手动补上），随后**完全退出并重启 DSH**（桌面版 `⌘Q` 退出重开；网页版重启 `dsh web`），即可在侧栏打开 **「春风画布」**。
+
+#### 从本地源码构建安装（适合二次开发调试）
 
 ```bash
 git clone https://github.com/chunfengbuyu000/dsh-chunfeng-image.git
 cd dsh-chunfeng-image
-npm install
-npm run build
+npm install && npm run build
+dsh plugin --profile desktop add "file:$PWD"
 ```
 
-2. 将插件包安装或软链至 DSH 插件目录（如 `~/.dsh/profiles/desktop/node_modules/dsh-chunfeng-image`），并在 DSH 配置中启用 `dsh-chunfeng-image`，重启 DSH 即可在侧栏/应用入口打开「春风画布」。
+### 更新插件
 
-### 渠道配置
+重新执行一次上述 `dsh plugin --profile <desktop|web> add github:chunfengbuyu000/dsh-chunfeng-image`（若为本地源码软链安装，在仓库目录执行 `git pull && npm run build`），然后重启 DSH 即可；原有的画布、资产与渠道配置会自动保留。
+
+### 卸载说明
+
+#### 方式一：发给 Agent 自动卸载
+
+```text
+请帮我从本机 DSH 卸载 dsh-chunfeng-image（春风画布）插件：
+运行 `dsh plugin --profile <desktop|web> remove dsh-chunfeng-image`，并检查 `~/.dsh/profiles/<profile>/package.json` 的 `dsh.profile.bundles` 数组，若仍残留 `"dsh-chunfeng-image"` 请将其移除（保留其他所有插件不动），默认保留 `~/.dsh/dsh-chunfeng-image/` 下的个人配置备份不删除，完成后提醒我重启 DSH。
+```
+
+#### 方式二：命令行手动卸载
+
+1. 移除插件依赖：
+
+```bash
+# 桌面版
+dsh plugin --profile desktop remove dsh-chunfeng-image
+
+# 网页版
+dsh plugin --profile web remove dsh-chunfeng-image
+```
+
+2. 检查 `~/.dsh/profiles/<desktop|web>/package.json`，若 `dsh.profile.bundles` 数组中仍存在 `"dsh-chunfeng-image"`，将其删除后保存，并**重启 DSH**。
+3. **个人数据清理（可选）**：
+   - 默认卸载**不会删除**你的本地创作数据和渠道备份，重装后可自动恢复。
+   - 如需彻底清除本机配置文件与转发日志，可执行 `rm -rf ~/.dsh/dsh-chunfeng-image`；如需一并清空浏览器端画布与图片缓存，可在卸载前进入插件 **「配置 → 偏好设置」** 底部点击清理本地存储。
+
+### 首次渠道配置
 
 1. 点击顶栏右侧齿轮进入 **「配置」** 页。
 2. 新增渠道，选择 **OpenAI 兼容** 或 **Gemini** 协议，填写 **Base URL** 与 **API Key**。
