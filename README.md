@@ -4,6 +4,8 @@
 
 春风画布是面向 DSH 的无限画布 AI 创作插件，将节点式画布编排、多协议模型中转、独立生图工作台（Studio）、社区提示词库与本地资产管理整合在同一个工作区中。
 
+![春风画布无限画布主视图](./assets/screenshots/01-canvas-dark.webp)
+
 ## 核心特性
 
 - **无限画布（Infinite Canvas）**：支持多画布管理、节点式 AI 出图与连线编排、分组、撤销/重做历史、网格背景与视口裁剪（500+ 节点流畅交互）。
@@ -17,6 +19,40 @@
 - **本地 JSON 资产导入**：支持从本地选择 JSON 文件导入单条资产、资产数组或导出备份中的 `assets` 列表。
 - **安全 ZIP 备份与恢复**：一键打包导出/恢复画布与本地媒体文件，导出时自动剥离所有明文 API Key。
 - **深色 / 浅色主题**：基于 DSH 设计令牌，自动跟随宿主深浅色外观切换。
+
+## 界面导览
+
+插件支持暗黑与明亮双主题无缝切换，以下为各核心模块实际界面预览：
+
+### 1. 无限画布与节点工作流编排（暗色外观）
+
+支持文本设定节点、交互式配置节点与图片/批量图组节点的连线编排与下游派生；悬停任意图片节点可呼出 15 项专业图片工具条，底部一体式输入条支持引用参考图、比例像素锁定、张数与分辨率调节。
+
+![无限画布与节点工作流编排](./assets/screenshots/01-canvas-dark.webp)
+
+### 2. 蒙版局部重绘（Mask Inpainting）
+
+在图片节点工具条中点击「局部修改」，即可使用内置半透明蓝色画笔/橡皮擦精准涂抹待修改区域，输入局部重绘提示词后提交上游 `/images/edits` 自动生成对比新节点。
+
+![蒙版局部重绘](./assets/screenshots/02-inpaint-dark.webp)
+
+### 3. Studio 独立生图工作台与画布互送（浅色外观）
+
+三栏式生图工作台聚合历史生成记录（持久化至 IndexedDB）、参数表单与参考图顺序管理、以及右侧多图结果画廊，支持单槽重试与一键「送到画布」双向流转。
+
+![Studio 独立生图工作台](./assets/screenshots/03-studio-light.webp)
+
+### 4. 提示词中心与参考图联动（浅色外观）
+
+内置 7 个社区官方提示词源（支持 `github.com/blob` 自动转直链及 jsDelivr 镜像对冲加速），以 4:3 视觉封面墙展示提示词、参考图数量角标及分类/多标签筛选，点击「带参考图使用」可自动下载配套参考图并直达工作台或画布。
+
+![提示词中心与参考图联动](./assets/screenshots/04-prompts-light.webp)
+
+### 5. 多协议渠道与来源管理（暗色外观）
+
+统一管理 OpenAI 兼容与 Google Gemini 官方渠道，支持在线拉取模型清单与连通性诊断；本地配置文件与备份强制 `0600` 权限保存，并支持配置 JSON 导入导出与「从本机文件恢复」自愈。
+
+![多协议渠道与来源管理](./assets/screenshots/05-config-dark.webp)
 
 ## 环境要求与安装
 
@@ -64,6 +100,9 @@ CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" PUPPE
 
 # 运行 500 节点画布性能与视口裁剪基准测试
 PUPPETEER_DIR=/path/to/puppeteer-dir npm run test:perf
+
+# 重新生成 README 界面截图（输出至 assets/screenshots/）
+PUPPETEER_DIR=/path/to/puppeteer-dir npm run shot:readme
 ```
 
 > 浏览器测试脚本通过 `scripts/puppeteer-loader.mjs` 统一解析 `puppeteer-core` / `puppeteer` 与本地 Chrome/Chromium；当运行环境缺少 Puppeteer 或浏览器时，浏览器测试会打印提示并优雅跳过。

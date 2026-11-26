@@ -68,7 +68,8 @@
     "test:image": "node scripts/image-ops-test.mjs",
     "test:zip": "node scripts/zip-test.mjs",
     "test:prompts": "node scripts/prompt-sources-test.mjs",
-    "test:video": "node scripts/video-test.mjs"
+    "test:video": "node scripts/video-test.mjs",
+    "shot:readme": "node scripts/readme-shots.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.10",
