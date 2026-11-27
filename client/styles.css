@@ -23,6 +23,15 @@
   isolation: isolate;
   height: 100%;
   overflow: clip;
+  --cf-leading-safe: var(--dsh-frame-leading-clearance, 0px);
+}
+:is([data-platform="darwin"]) :is([data-sidebar-collapsed], [data-sidebar-drawer]) .cf-app {
+  --cf-leading-safe: var(--dsh-frame-leading-clearance, 160px);
+}
+:is([data-platform="darwin"][data-fullscreen]) :is([data-sidebar-collapsed], [data-sidebar-drawer]) .cf-app,
+:is([data-platform="darwin"]) :is([data-sidebar-collapsed][data-fullscreen], [data-sidebar-drawer][data-fullscreen]) .cf-app,
+html:not([data-platform="darwin"]) :is([data-sidebar-collapsed], [data-sidebar-drawer]) .cf-app {
+  --cf-leading-safe: var(--dsh-frame-leading-clearance, 84px);
 }
 .cf-nav, .cf-page, .cf-editor { position: relative; z-index: 1; }
 /* 已移除全屏无限模糊漂移层 .cf-ambient，改用静置 0 帧提交的纯色底（var(--cf-bg)），
@@ -56,15 +65,16 @@
 .cf-nav {
   position: absolute;
   top: var(--cf-sp-3);
-  left: var(--cf-sp-3);
+  left: max(var(--cf-sp-3), var(--cf-leading-safe, 0px));
   right: var(--cf-sp-3);
   z-index: var(--cf-z-nav);
   display: flex;
   align-items: center;
   gap: var(--cf-sp-2);
   pointer-events: none;
+  transition: left var(--cf-dur) var(--cf-ease);
 }
-.cf-nav > * { pointer-events: auto; }
+.cf-nav > * { pointer-events: auto; -webkit-app-region: no-drag; }
 
 /* 浮岛：独立的圆角玻璃块，不是一个通栏里套按钮 */
 .cf-island {
@@ -89,7 +99,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 4px;
+  padding: 2px;
   border-radius: var(--cf-r-md);
   background: var(--cf-glass-soft);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line);
@@ -679,7 +689,7 @@
   position: absolute;
   z-index: var(--cf-z-float);
   top: var(--cf-sp-3);
-  left: 50%;
+  left: calc(50% + var(--cf-leading-safe, 0px) * 0.35);
   translate: -50% 0;
   display: flex;
   align-items: center;
@@ -689,6 +699,8 @@
   border-radius: var(--cf-r-md);
   background: var(--cf-glass);
   box-shadow: inset 0 0 0 var(--cf-hair) var(--cf-line);
+  -webkit-app-region: no-drag;
+  transition: left var(--cf-dur) var(--cf-ease);
 }
 .cf-canvas-bar-name {
   max-width: 22ch;
@@ -1611,11 +1623,12 @@
 @media (max-width: 1080px) {
   .cf-studio { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .cf-studio-col--records { grid-column: 1 / -1; }
+  .cf-canvas-bar-name { max-width: 12ch; }
 }
 
 @media (max-width: 860px) {
   .cf-page-inner { padding: calc(var(--cf-sp-3) + 36px + var(--cf-sp-3)) 20px var(--cf-sp-6); }
-  .cf-nav { height: auto; padding: var(--cf-sp-2) 20px; flex-wrap: wrap; gap: var(--cf-sp-1); }
+  .cf-nav { height: auto; padding: 0; flex-wrap: wrap; gap: var(--cf-sp-1); }
   .cf-nav-item.is-on::after { bottom: -6px; }
   .cf-nav-version { display: none; }
   .cf-split { grid-template-columns: minmax(0, 1fr); gap: var(--cf-sp-4); }

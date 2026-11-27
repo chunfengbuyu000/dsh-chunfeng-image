@@ -3609,6 +3609,49 @@ await check('提示词模块全链路：blob 链接自动转 raw、拉取带封�
   await page.close()
 })
 
+await check('宿主侧栏收起时：顶栏主导航自动右移避让红绿灯与壳层按钮，且不与画布标题条重叠', async () => {
+  const { page, errors } = await openPage('/editor.html')
+  await wait(page, 300)
+
+  const defaultNav = await page.$eval('.cf-nav', (el) => el.getBoundingClientRect().left)
+  assert(Math.abs(defaultNav - 12) <= 1, `默认顶栏左边距应为 12px，实际 ${defaultNav}`)
+
+  await page.setViewport({ width: 1024, height: 800 })
+  await page.evaluate(() => {
+    document.documentElement.setAttribute('data-platform', 'darwin')
+    document.body.setAttribute('data-sidebar-collapsed', '')
+    document.documentElement.style.setProperty('--dsh-frame-leading-clearance', '160px')
+  })
+  await wait(page, 350)
+
+  const collapsed = await page.evaluate(() => {
+    const pick = (sel) => {
+      const r = document.querySelector(sel)?.getBoundingClientRect()
+      return r ? { left: r.left, right: r.right, top: r.top, width: r.width } : null
+    }
+    return {
+      nav: pick('.cf-island--nav'),
+      bar: pick('.cf-canvas-bar'),
+      right: pick('.cf-nav-right'),
+    }
+  })
+  assert(collapsed.nav && collapsed.bar && collapsed.right, `缺少顶栏关键元素：${JSON.stringify(collapsed)}`)
+  assert(collapsed.nav.left >= 159, `收起侧栏后主导航未避让 160px 安全区：left=${collapsed.nav.left}`)
+  assert(collapsed.nav.right < collapsed.bar.left, `主导航(${collapsed.nav.right})与画布标题条(${collapsed.bar.left})发生重叠`)
+  assert(collapsed.bar.right < collapsed.right.left, `画布标题条(${collapsed.bar.right})与右侧操作区(${collapsed.right.left})发生重叠`)
+
+  await page.evaluate(() => {
+    document.documentElement.setAttribute('data-fullscreen', 'true')
+    document.documentElement.style.setProperty('--dsh-frame-leading-clearance', '84px')
+  })
+  await wait(page, 350)
+
+  const fullscreenNav = await page.$eval('.cf-island--nav', (el) => el.getBoundingClientRect().left)
+  assert(Math.abs(fullscreenNav - 84) <= 2, `全屏收起侧栏时左边距应为 84px，实际 ${fullscreenNav}`)
+  assert(!errors.length, '报错：' + errors.join(' | '))
+  await page.close()
+})
+
 await browser.close()
 server.close()
 crossSource.close()
